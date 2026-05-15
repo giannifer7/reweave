@@ -1,0 +1,16 @@
+[package]
+name = "reweave-tangle"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Forward-only noweb tangler for Reweave"
+
+[dependencies]
+memchr.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "reweave-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Common constants and basic types for Reweave"
+
+[dependencies]
+# Minimal dependencies
