@@ -58,3 +58,43 @@ impl Evaluator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::types::{ASTNode, NodeKind, Token, TokenKind};
+
+    #[test]
+    fn tag_as_macro_arg_builds_coarse_span_for_untracked_values() {
+        let mut eval = Evaluator::new(EvalConfig::default());
+        let src = eval.add_source_bytes(b"value".to_vec(), PathBuf::from("arg.txt"));
+        let param = ASTNode {
+            kind: NodeKind::Param,
+            src,
+            token: Token {
+                src,
+                kind: TokenKind::Text,
+                pos: 0,
+                length: 5,
+            },
+            end_pos: 5,
+            name: None,
+            parts: vec![],
+        };
+
+        let spans = eval.tag_as_macro_arg(Vec::new(), "value", &param, "wrap", "x");
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start, 0);
+        assert_eq!(spans[0].end, 5);
+        assert!(matches!(
+            spans[0].span.kind,
+            SpanKind::MacroArg {
+                ref macro_name,
+                ref param_name
+            } if macro_name == "wrap" && param_name == "x"
+        ));
+    }
+}

@@ -106,6 +106,20 @@ fn eval_file_errors_when_output_parent_cannot_be_resolved() {
 }
 
 #[test]
+fn eval_file_reports_create_dir_failure_after_canonical_checks() {
+    let tmp = TempDir::new().unwrap();
+    let input = create_temp_file("content");
+    let blocked = tmp.path().join("blocked");
+    std::fs::write(&blocked, "not a directory").unwrap();
+    let out = blocked.join("out.txt");
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+
+    let err = eval_file(input.path(), &out, &mut evaluator).unwrap_err();
+
+    assert!(err.to_string().contains("Cannot create dir"));
+}
+
+#[test]
 fn eval_files_shared_evaluator_sees_prior_defs() {
     let tmp = TempDir::new().unwrap();
     let out_dir = tmp.path().join("out");

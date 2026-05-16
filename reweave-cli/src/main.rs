@@ -237,6 +237,15 @@ mod tests {
     }
 
     #[test]
+    fn directory_discovery_reports_walk_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut args = default_args(tmp.path());
+        args.directory = Some(tmp.path().join("missing"));
+
+        assert!(matches!(collect_inputs(&args), Err(Error::Io { .. })));
+    }
+
+    #[test]
     fn run_expands_macros_and_tangles_file_chunks() {
         let tmp = tempfile::tempdir().unwrap();
         let input = write(

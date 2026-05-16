@@ -26,6 +26,56 @@ fn test_error_cases() {
 }
 
 #[test]
+fn test_unclosed_tagged_and_verbatim_blocks_report_specific_errors() {
+    let (_, errors) = Lexer::new("%a{ %tag{ %inner{body", '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|err| err.message.contains("Unclosed block '%tag{'")),
+        "expected tagged block error, got {errors:?}"
+    );
+
+    let (_, errors) = Lexer::new("%[ %[verbatim", '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|err| err.message.contains("Unclosed anonymous block '%['")),
+        "expected anonymous verbatim error, got {errors:?}"
+    );
+
+    let (_, errors) = Lexer::new("%a[ %tag[ %inner[verbatim", '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|err| err.message.contains("Unclosed block '%tag['")),
+        "expected tagged verbatim error, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_nested_and_unmatched_verbatim_edges() {
+    assert_tokens(
+        "%[outer %[inner%] outer%]",
+        &[
+            (TokenKind::VerbatimOpen, "%["),
+            (TokenKind::Text, "outer "),
+            (TokenKind::VerbatimOpen, "%["),
+            (TokenKind::Text, "inner"),
+            (TokenKind::VerbatimClose, "%]"),
+            (TokenKind::Text, " outer"),
+            (TokenKind::VerbatimClose, "%]"),
+        ],
+    );
+
+    let (_, errors) = Lexer::new("%]", '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|err| err.message.contains("Unmatched verbatim close"))
+    );
+}
+
+#[test]
 fn test_bare_percent_inside_comment() {
     assert_tokens(
         "%/* 100% done %*/",
@@ -118,6 +168,17 @@ fn test_unmatched_closing_blocks_report_errors() {
     );
 
     let (_, errors) = Lexer::new("%] %tag]", '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|err| err.message.contains("Unmatched verbatim close"))
+    );
+}
+
+#[test]
+fn test_unmatched_tagged_verbatim_close_reports_error() {
+    let (_, errors) = Lexer::new("%tag]", '%', 0).lex();
+
     assert!(
         errors
             .iter()

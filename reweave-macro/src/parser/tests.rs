@@ -6,7 +6,9 @@ mod tagged_valid;
 
 use crate::lexer::Lexer;
 use crate::line_index::LineIndex;
-use crate::parser::{BlockDelim, ParseContext, Parser, ParserState};
+use crate::parser::{
+    block_delim_chars, block_tag_label, BlockDelim, ParseContext, Parser, ParserState,
+};
 use crate::types::{NodeKind, Token, TokenKind};
 use std::io::Write;
 
@@ -76,8 +78,12 @@ fn read_tokens_rejects_invalid_numeric_fields() {
     let dir = tempfile::tempdir().unwrap();
     let invalid_src = dir.path().join("invalid-src.csv");
     let invalid_kind = dir.path().join("invalid-kind.csv");
+    let invalid_pos = dir.path().join("invalid-pos.csv");
+    let invalid_length = dir.path().join("invalid-length.csv");
     std::fs::write(&invalid_src, "x,0,0,1\n").unwrap();
     std::fs::write(&invalid_kind, "0,99,0,1\n").unwrap();
+    std::fs::write(&invalid_pos, "0,0,x,1\n").unwrap();
+    std::fs::write(&invalid_length, "0,0,0,x\n").unwrap();
 
     assert!(
         Parser::read_tokens(invalid_src.to_str().unwrap())
@@ -91,6 +97,18 @@ fn read_tokens_rejects_invalid_numeric_fields() {
             .to_string()
             .contains("Invalid token kind")
     );
+    assert!(
+        Parser::read_tokens(invalid_pos.to_str().unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid pos")
+    );
+    assert!(
+        Parser::read_tokens(invalid_length.to_str().unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid length")
+    );
 }
 
 #[test]
@@ -98,6 +116,8 @@ fn parser_accessors_and_ast_builders_cover_empty_and_valid_trees() {
     let mut empty = Parser::new();
     assert_eq!(empty.get_root_index(), None);
     assert!(empty.process_ast(b"").unwrap_err().contains("Empty parse tree"));
+    let default_parser = Parser::default();
+    assert_eq!(default_parser.get_root_index(), None);
 
     let src = "hello ";
     let (tokens, errors) = Lexer::new(src, '%', 0).lex();
@@ -112,6 +132,23 @@ fn parser_accessors_and_ast_builders_cover_empty_and_valid_trees() {
     assert!(!parser.to_json().is_empty());
     assert!(parser.build_ast().is_ok());
     assert!(parser.process_ast(src.as_bytes()).is_ok());
+}
+
+#[test]
+fn parser_private_formatting_helpers_cover_edge_cases() {
+    let line_index = LineIndex::new("abc");
+    let ctx = ParseContext::new(b"abc", &line_index);
+    assert!(ctx.tags_match((0, 0), (2, 0)));
+    assert!(!ctx.tags_match((0, 1), (1, 2)));
+    assert!(!ctx.tags_match((99, 1), (0, 1)));
+    let bad_utf8_index = LineIndex::new("x");
+    let bad_utf8 = [0xff];
+    let bad_utf8_ctx = ParseContext::new(&bad_utf8, &bad_utf8_index);
+    assert_eq!(bad_utf8_ctx.tag_str(0, 1), "");
+    assert_eq!(block_tag_label("", '{'), "(anonymous)");
+    assert_eq!(block_tag_label("name", '}'), "%name}");
+    assert_eq!(block_delim_chars(BlockDelim::Curly), ('{', '}'));
+    assert_eq!(block_delim_chars(BlockDelim::Square), ('[', ']'));
 }
 
 #[test]
@@ -165,6 +202,21 @@ fn parser_accepts_empty_token_stream() {
     let line_index = LineIndex::new("");
     parser.parse(&[], b"", &line_index).unwrap();
     assert_eq!(parser.get_root_index(), None);
+}
+
+#[test]
+fn parser_reports_internal_stack_invariant_errors() {
+    let mut parser = Parser::new();
+    parser.stack.push((
+        ParserState::Block {
+            tag_pos: 0,
+            tag_len: 0,
+            delim: BlockDelim::Curly,
+        },
+        999,
+    ));
+    let err = parser.close_top(1).unwrap_err();
+    assert!(err.to_string().contains("not in arena"));
 }
 
 #[test]

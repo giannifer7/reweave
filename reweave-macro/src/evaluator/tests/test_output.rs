@@ -1,4 +1,4 @@
-use crate::evaluator::output::{EvalOutput, PlainOutput, SourceSpan};
+use crate::evaluator::output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan};
 use crate::evaluator::{EvalConfig, Evaluator};
 use crate::macro_api::process_string_defaults;
 use std::path::PathBuf;
@@ -70,6 +70,22 @@ fn plain_output_parity_named_args() {
     let via_evaluate = String::from_utf8(process_string_defaults(src).unwrap()).unwrap();
     let via_output = eval_to_plain(src);
     assert_eq!(via_output, via_evaluate);
+}
+
+#[test]
+fn plain_output_default_collects_tracked_and_untracked_text() {
+    let mut out = PlainOutput::default();
+    let span = SourceSpan {
+        src: 0,
+        pos: 0,
+        length: 0,
+        kind: SpanKind::Literal,
+    };
+
+    out.push_str("tracked", span);
+    out.push_untracked("-untracked");
+
+    assert_eq!(out.finish(), "tracked-untracked");
 }
 
 // ---------- Span correctness: SpyOutput to verify spans ----------
@@ -257,4 +273,36 @@ fn test_line_entries() {
     let (out_line_2, entry_2) = &entries[2];
     assert_eq!(*out_line_2, 2);
     assert_eq!(entry_2.src_line, 2);
+}
+
+#[test]
+fn tracing_output_tracks_multiline_variable_without_origin_spans() {
+    let src = "%set(x, a\nb)%(x)";
+    let mut eval = Evaluator::new(EvalConfig::default());
+    let path = PathBuf::from("vars.md");
+    let ast = eval.parse_string(src, &path).unwrap();
+    let mut out = PreciseTracingOutput::new();
+
+    eval.evaluate_to(&ast, &mut out).unwrap();
+
+    let (output, ranges) = out.into_parts();
+    assert_eq!(output, "a\nb");
+    assert!(
+        ranges
+            .iter()
+            .any(|range| matches!(range.span.kind, SpanKind::VarBinding { ref var_name } if var_name == "x"))
+    );
+}
+
+#[test]
+fn evaluate_to_reports_undefined_variables() {
+    let src = "%(missing)";
+    let mut eval = Evaluator::new(EvalConfig::default());
+    let path = PathBuf::from("missing.md");
+    let ast = eval.parse_string(src, &path).unwrap();
+    let mut out = PlainOutput::new();
+
+    let err = eval.evaluate_to(&ast, &mut out).unwrap_err();
+
+    assert!(err.to_string().contains("missing"));
 }

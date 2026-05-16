@@ -76,6 +76,14 @@ fn test_def_macro_comma_errors() {
 }
 
 #[test]
+fn test_def_rejects_duplicate_formal_parameter() {
+    let err = process_string_defaults("%def(foo, x, x, %(x))").unwrap_err();
+
+    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(err.to_string().contains("already used"));
+}
+
+#[test]
 fn test_def_macro_with_comments() {
     let result = process_string_defaults(
         "%def(greet, %/* greeting macro %*/\n\

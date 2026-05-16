@@ -78,6 +78,11 @@ mod delimiter_handling {
             "HELLO-WORLD-TEST"
         );
     }
+
+    #[test]
+    fn test_empty_words_are_ignored_in_capitalizing_cases() {
+        assert_eq!(convert_case("___", Case::Pascal), "");
+    }
 }
 
 #[cfg(test)]

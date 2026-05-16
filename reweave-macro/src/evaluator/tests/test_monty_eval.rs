@@ -54,7 +54,7 @@ fn test_monty_evaluate_runtime_error_contains_macro_name() {
 
 #[test]
 fn test_monty_default_matches_new() {
-    let eval = MontyEvaluator;
+    let eval = MontyEvaluator::default();
     let result = eval
         .evaluate("x", &["x".into()], &["ok".into()], &HashMap::new(), None)
         .unwrap();
@@ -91,6 +91,20 @@ fn test_monty_evaluate_formats_float_and_list_results() {
         .unwrap();
     assert_eq!(float_result, "1.5");
     assert_eq!(list_result, "ab3");
+}
+
+#[test]
+fn test_monty_formats_false_and_other_objects() {
+    let eval = MontyEvaluator::new();
+    let false_result = eval
+        .evaluate("1 > 2", &[], &[], &HashMap::new(), Some("cmp"))
+        .unwrap();
+    let dict_result = eval
+        .evaluate("{}", &[], &[], &HashMap::new(), Some("dict"))
+        .unwrap();
+
+    assert_eq!(false_result, "");
+    assert!(dict_result.contains("Dict") || dict_result.contains("{}"));
 }
 
 #[test]

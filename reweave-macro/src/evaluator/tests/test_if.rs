@@ -18,6 +18,13 @@ fn test_if_condition_true() {
 }
 
 #[test]
+fn test_if_true_without_then_returns_empty() {
+    let result = process_string_defaults("%if(true)").unwrap();
+
+    assert_eq!(result, b"");
+}
+
+#[test]
 fn test_if_condition_false() {
     let result = process_string_defaults(
         r#"

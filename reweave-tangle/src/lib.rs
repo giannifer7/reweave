@@ -682,6 +682,13 @@ println!("hi");
     }
 
     #[test]
+    fn read_file_reports_io_errors() {
+        let mut t = Tangle::new(TangleConfig::default());
+        let err = t.read_file(Path::new("missing-file.md")).unwrap_err();
+        assert!(matches!(err, TangleError::Io(_)));
+    }
+
+    #[test]
     fn writes_outputs_directly() {
         let temp = tempfile::tempdir().unwrap();
         let t = read("```text\n# <[@file out.txt]>=\nhello\n# @\n```");
@@ -704,6 +711,18 @@ println!("hi");
             fs::read_to_string(temp.path().join("nested/out.txt")).unwrap(),
             "hello\n"
         );
+    }
+
+    #[test]
+    fn write_files_reports_directory_creation_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let blocked = temp.path().join("blocked");
+        fs::write(&blocked, "not a directory").unwrap();
+        let t = read("```text\n# <[@file nested/out.txt]>=\nx\n# @\n```");
+
+        let err = t.write_files(&blocked).unwrap_err();
+
+        assert!(matches!(err, TangleError::Io(_)));
     }
 
     #[test]
@@ -731,6 +750,12 @@ println!("hi");
             "```text\n  # <[@file out.txt]>=\n# <[body]>\n# @\n# <[body]>=\nx\n# @\n```",
         );
 
+        assert_eq!(t.expand("@file out.txt").unwrap().join(""), "x\n");
+    }
+
+    #[test]
+    fn keeps_content_lines_shorter_than_definition_indent() {
+        let t = read("```text\n    # <[@file out.txt]>=\nx\n# @\n```");
         assert_eq!(t.expand("@file out.txt").unwrap().join(""), "x\n");
     }
 }

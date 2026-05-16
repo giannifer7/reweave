@@ -101,6 +101,11 @@ fn test_state_tracked_and_traced_variables() {
     assert_eq!(traced.spans.len(), 1);
     assert_eq!(traced.spans[0].start, 1);
     assert_eq!(traced.spans[0].end, 4);
+
+    st.set_tracked_variable("empty_span", "value", None);
+    let unspanned = st.get_tracked_variable("empty_span").unwrap();
+    assert_eq!(unspanned.value, "value");
+    assert!(unspanned.spans.is_empty());
 }
 
 #[test]

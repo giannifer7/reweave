@@ -181,6 +181,8 @@ mod tests {
         let output = dir.path().join("sample.ast");
         write_ast_to_file("# src:0=input", &nodes, &output).expect("write file");
         assert_eq!(std::fs::read_to_string(output).expect("read file"), text);
+
+        write_ast_to_file("# src:0=-", &nodes, &PathBuf::from("-")).expect("write stdout");
     }
 
     #[test]
@@ -208,5 +210,18 @@ mod tests {
         std::fs::write(&invalid, "%foo(").expect("write invalid input");
         let err = dump_macro_ast('%', &[invalid]).unwrap_err();
         assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn dump_macro_ast_reports_output_write_errors() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("sample.txt");
+        let blocked_output = dir.path().join("sample.ast");
+        std::fs::write(&input, "plain").expect("write input");
+        std::fs::create_dir(&blocked_output).expect("create blocking directory");
+
+        let err = dump_macro_ast('%', &[input]).unwrap_err();
+
+        assert!(err.to_string().contains("Failed to write"));
     }
 }

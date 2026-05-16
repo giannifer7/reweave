@@ -147,6 +147,18 @@ fn test_node_text_handles_special_tokens_and_invalid_ranges() {
         "%"
     );
     assert_eq!(
+        eval.node_text(&node(NodeKind::Macro, TokenKind::Macro, 0, 1)),
+        "%"
+    );
+    assert_eq!(
+        eval.node_text(&node(NodeKind::Var, TokenKind::Var, 0, 2)),
+        "%n"
+    );
+    assert_eq!(
+        eval.node_text(&node(NodeKind::Text, TokenKind::Special, 0, 2)),
+        "%"
+    );
+    assert_eq!(
         eval.node_text(&node(NodeKind::Text, TokenKind::Text, 99, 1)),
         ""
     );
@@ -165,4 +177,74 @@ fn test_node_text_handles_special_tokens_and_invalid_ranges() {
         parts: vec![],
     };
     assert_eq!(eval.node_text(&invalid), "");
+}
+
+#[test]
+fn test_core_default_evaluation_branch_and_temporary_variables() {
+    let mut eval = Evaluator::new(EvalConfig::default());
+    let src = eval.add_source_bytes(b"%(x)".to_vec(), PathBuf::from("inline.txt"));
+    eval.set_variable("x", "outer");
+
+    let var = ASTNode {
+        kind: NodeKind::Var,
+        src,
+        token: Token {
+            src,
+            kind: TokenKind::Var,
+            pos: 0,
+            length: 4,
+        },
+        end_pos: 4,
+        name: None,
+        parts: vec![],
+    };
+    let wrapper = ASTNode {
+        kind: NodeKind::NotUsed,
+        src,
+        token: Token::synthetic(src, 0),
+        end_pos: 4,
+        name: None,
+        parts: vec![var],
+    };
+
+    let result = eval
+        .evaluate_with_temporary_variables(
+            &[
+                ("x".to_string(), "first".to_string()),
+                ("x".to_string(), "second".to_string()),
+            ],
+            &wrapper,
+        )
+        .unwrap();
+    assert_eq!(result, "second");
+    assert_eq!(eval.evaluate(&wrapper).unwrap(), "outer");
+
+    let mut out = PlainOutput::new();
+    eval.evaluate_to(&wrapper, &mut out).unwrap();
+    assert_eq!(out.finish(), "outer");
+}
+
+#[test]
+fn test_extract_name_value_returns_empty_for_bad_ranges_and_sources() {
+    let mut eval = Evaluator::new(EvalConfig::default());
+    let src = eval.add_source_bytes(b"abc".to_vec(), PathBuf::from("inline.txt"));
+
+    assert_eq!(
+        eval.extract_name_value(&Token {
+            src,
+            kind: TokenKind::Ident,
+            pos: 1,
+            length: 99,
+        }),
+        ""
+    );
+    assert_eq!(
+        eval.extract_name_value(&Token {
+            src: 99,
+            kind: TokenKind::Ident,
+            pos: 0,
+            length: 1,
+        }),
+        ""
+    );
 }

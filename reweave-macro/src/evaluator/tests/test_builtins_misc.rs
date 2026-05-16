@@ -12,6 +12,7 @@ fn eval_default(src: &str) -> Result<String, EvalError> {
 fn test_include_and_import_empty_filename_return_empty() {
     assert_eq!(eval_default("%include()").unwrap(), "");
     assert_eq!(eval_default("%import()").unwrap(), "");
+    assert_eq!(eval_default("%include(%if())").unwrap(), "");
 }
 
 #[test]
@@ -32,6 +33,8 @@ fn test_single_arg_case_builtins_empty_input_return_empty() {
     assert_eq!(eval_default("%capitalize()").unwrap(), "");
     assert_eq!(eval_default("%decapitalize()").unwrap(), "");
     assert_eq!(eval_default("%to_snake_case()").unwrap(), "");
+    assert_eq!(eval_default("%capitalize(%if())").unwrap(), "");
+    assert_eq!(eval_default("%to_camel_case(%if())").unwrap(), "");
 }
 
 #[test]

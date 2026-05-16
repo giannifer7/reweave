@@ -129,6 +129,34 @@ fn test_process_files_can_write_to_existing_parent() {
 }
 
 #[test]
+fn test_process_file_reports_output_parent_creation_errors() {
+    let temp_dir = TempDir::new().unwrap();
+    let input = create_temp_file(&temp_dir, "input.txt", "plain text");
+    let blocked = temp_dir.path().join("blocked");
+    fs::write(&blocked, "not a directory").unwrap();
+    let output_file = blocked.join("output.txt");
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+
+    let err = process_file(&input, &output_file, &mut evaluator).unwrap_err();
+
+    assert!(err.to_string().contains("Cannot create dir"));
+}
+
+#[test]
+fn test_process_files_reports_output_parent_creation_errors() {
+    let temp_dir = TempDir::new().unwrap();
+    let input = create_temp_file(&temp_dir, "input.txt", "plain text");
+    let blocked = temp_dir.path().join("blocked-files");
+    fs::write(&blocked, "not a directory").unwrap();
+    let output_file = blocked.join("output.txt");
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+
+    let err = process_files(&[input], &output_file, &mut evaluator).unwrap_err();
+
+    assert!(err.to_string().contains("Cannot create dir"));
+}
+
+#[test]
 fn test_process_file_wraps_input_context_on_eval_error() {
     let temp_dir = TempDir::new().unwrap();
     let input = create_temp_file(&temp_dir, "bad.txt", "%undefined()");
@@ -245,6 +273,23 @@ fn test_process_string_tracing_propagates_macro_call_errors() {
     assert!(
         process_string_tracing("%def(one, x, %(x))%one()", None, &mut evaluator).is_err()
     );
+
+    let mut evaluator = Evaluator::new(EvalConfig {
+        recursion_limit: 0,
+        ..EvalConfig::default()
+    });
+    let err = process_string_tracing("%def(zero, %{x%})%zero()", None, &mut evaluator).unwrap_err();
+    assert!(err.to_string().contains("maximum recursion depth"));
+}
+
+#[test]
+fn test_plain_and_tracing_macro_calls_reject_missing_params() {
+    let src = "%def(first, x, y, %(x)-%(y))%first(value)";
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    assert!(process_string(src, None, &mut evaluator).is_err());
+
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    assert!(process_string_tracing(src, None, &mut evaluator).is_err());
 }
 
 #[test]
