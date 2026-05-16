@@ -165,14 +165,8 @@ fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTEr
     // Structural invariant: leaf node kinds should never have children.
     // A violation here indicates a parser bug, not user input.
     debug_assert!(
-        !matches!(
-            node.kind,
-            NodeKind::Equal | NodeKind::Ident | NodeKind::Text | NodeKind::Space
-        ) || node.parts.is_empty(),
-        "leaf {:?} node at index {} should have no children, found {}",
-        node.kind,
-        node_idx,
-        node.parts.len()
+        leaf_node_has_no_children(node.kind, &node.parts),
+        "leaf node at index {node_idx} should have no children"
     );
 
     // Recurse into children.
@@ -195,6 +189,13 @@ fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTEr
         },
         name: None,
     }))
+}
+
+fn leaf_node_has_no_children(kind: NodeKind, parts: &[usize]) -> bool {
+    !matches!(
+        kind,
+        NodeKind::Equal | NodeKind::Ident | NodeKind::Text | NodeKind::Space
+    ) || parts.is_empty()
 }
 
 fn is_empty_positional_param(node: &ASTNode) -> bool {

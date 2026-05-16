@@ -129,11 +129,7 @@ impl<'a> ParseContext<'a> {
         if len == 0 {
             return "";
         }
-        debug_assert!(
-            pos + len <= self.content.len(),
-            "tag span OOB: {pos}+{len} > {}",
-            self.content.len()
-        );
+        debug_assert!(pos + len <= self.content.len(), "tag span OOB");
         std::str::from_utf8(self.content.get(pos..pos + len).unwrap_or(&[])).unwrap_or("")
     }
 }

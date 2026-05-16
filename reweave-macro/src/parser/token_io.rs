@@ -25,7 +25,7 @@ impl Parser {
         })
     }
 
-    fn parse_tokens<I>(lines: I) -> Result<Vec<Token>, ParserError>
+    pub(in crate::parser) fn parse_tokens<I>(lines: I) -> Result<Vec<Token>, ParserError>
     where
         I: Iterator<Item = Result<String, std::io::Error>>,
     {
@@ -45,6 +45,7 @@ impl Parser {
         Self::parse_tokens(reader.lines())
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn read_tokens_from_stdin() -> Result<Vec<Token>, ParserError> {
         let stdin = io::stdin();
         Self::parse_tokens(stdin.lock().lines())

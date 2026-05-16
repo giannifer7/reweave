@@ -4,7 +4,7 @@ use crate::types::{ASTNode, Token};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn serialize_token(token: &Token) -> String {
     format!(
@@ -73,14 +73,20 @@ pub fn write_ast_to_file(header: &str, nodes: &[String], output_path: &PathBuf) 
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn read_input(input: &PathBuf) -> io::Result<String> {
     if input.to_str() == Some("-") {
-        let mut buffer = String::new();
-        io::stdin().read_to_string(&mut buffer)?;
-        Ok(buffer)
+        read_stdin()
     } else {
         std::fs::read_to_string(input)
     }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn read_stdin() -> io::Result<String> {
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer)?;
+    Ok(buffer)
 }
 
 pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalError> {
@@ -92,11 +98,7 @@ pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalEr
         let ast = lex_parse_content(&content, sigil, 0)?;
         let nodes = serialize_ast_nodes(&ast);
 
-        let (output, src_name) = if input.to_str() == Some("-") {
-            (PathBuf::from("-"), "-".to_string())
-        } else {
-            (input.with_extension("ast"), input.display().to_string())
-        };
+        let (output, src_name) = ast_output_for_input(input);
 
         // Header line: maps src indices to source file paths.
         // Format: # src:<index>=<path>  (one per source file; currently always src:0)
@@ -107,6 +109,15 @@ pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalEr
         })?;
     }
     Ok(())
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn ast_output_for_input(input: &Path) -> (PathBuf, String) {
+    if input.to_str() == Some("-") {
+        (PathBuf::from("-"), "-".to_string())
+    } else {
+        (input.with_extension("ast"), input.display().to_string())
+    }
 }
 
 #[cfg(test)]

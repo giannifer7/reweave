@@ -103,9 +103,6 @@ impl Evaluator {
             }
         }
 
-        let unbound_names: Vec<String> =
-            binding_plan.unbound.iter().map(|s| s.to_string()).collect();
-
         // NOW push the callee frame
         self.state.push_scope();
 
@@ -136,10 +133,6 @@ impl Evaluator {
                 self.state
                     .set_tracked_variable(&param_name, &val, Some(coarse_span));
             }
-        }
-
-        for param_name in &unbound_names {
-            self.state.set_variable(param_name, "");
         }
 
         self.state.call_depth += 1;

@@ -1,6 +1,7 @@
 use crate::evaluator::output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan};
 use crate::evaluator::{EvalConfig, Evaluator};
 use crate::macro_api::process_string_defaults;
+use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 use std::path::PathBuf;
 
 /// Helper: evaluate `source` through evaluate_to(PlainOutput) and return the
@@ -86,6 +87,30 @@ fn plain_output_default_collects_tracked_and_untracked_text() {
     out.push_untracked("-untracked");
 
     assert_eq!(out.finish(), "tracked-untracked");
+}
+
+#[test]
+fn evaluate_comment_nodes_are_noops_for_plain_and_output_paths() {
+    let comment = ASTNode {
+        kind: NodeKind::LineComment,
+        src: 0,
+        token: Token {
+            kind: TokenKind::LineComment,
+            src: 0,
+            pos: 0,
+            length: 9,
+        },
+        end_pos: 9,
+        parts: Vec::new(),
+        name: None,
+    };
+    let mut eval = Evaluator::new(EvalConfig::default());
+
+    assert_eq!(eval.evaluate(&comment).unwrap(), "");
+
+    let mut out = PlainOutput::new();
+    eval.evaluate_to(&comment, &mut out).unwrap();
+    assert_eq!(out.finish(), "");
 }
 
 // ---------- Span correctness: SpyOutput to verify spans ----------
@@ -287,11 +312,9 @@ fn tracing_output_tracks_multiline_variable_without_origin_spans() {
 
     let (output, ranges) = out.into_parts();
     assert_eq!(output, "a\nb");
-    assert!(
-        ranges
-            .iter()
-            .any(|range| matches!(range.span.kind, SpanKind::VarBinding { ref var_name } if var_name == "x"))
-    );
+    assert!(ranges.iter().any(
+        |range| matches!(range.span.kind, SpanKind::VarBinding { ref var_name } if var_name == "x")
+    ));
 }
 
 #[test]

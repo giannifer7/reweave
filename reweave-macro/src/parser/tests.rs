@@ -7,7 +7,7 @@ mod tagged_valid;
 use crate::lexer::Lexer;
 use crate::line_index::LineIndex;
 use crate::parser::{
-    block_delim_chars, block_tag_label, BlockDelim, ParseContext, Parser, ParserState,
+    BlockDelim, ParseContext, Parser, ParserState, block_delim_chars, block_tag_label,
 };
 use crate::types::{NodeKind, Token, TokenKind};
 use std::io::Write;
@@ -112,10 +112,24 @@ fn read_tokens_rejects_invalid_numeric_fields() {
 }
 
 #[test]
+fn read_tokens_reports_line_read_errors() {
+    let err =
+        Parser::parse_tokens(vec![Err(std::io::Error::other("line read failed"))].into_iter())
+            .unwrap_err();
+
+    assert!(err.to_string().contains("Failed to read line"));
+}
+
+#[test]
 fn parser_accessors_and_ast_builders_cover_empty_and_valid_trees() {
     let mut empty = Parser::new();
     assert_eq!(empty.get_root_index(), None);
-    assert!(empty.process_ast(b"").unwrap_err().contains("Empty parse tree"));
+    assert!(
+        empty
+            .process_ast(b"")
+            .unwrap_err()
+            .contains("Empty parse tree")
+    );
     let default_parser = Parser::default();
     assert_eq!(default_parser.get_root_index(), None);
 
@@ -128,7 +142,10 @@ fn parser_accessors_and_ast_builders_cover_empty_and_valid_trees() {
 
     let root = parser.get_root_index().unwrap();
     assert!(parser.get_node(root).is_some());
-    assert_eq!(parser.get_node_info(root).unwrap().1, crate::types::NodeKind::Block);
+    assert_eq!(
+        parser.get_node_info(root).unwrap().1,
+        crate::types::NodeKind::Block
+    );
     assert!(!parser.to_json().is_empty());
     assert!(parser.build_ast().is_ok());
     assert!(parser.process_ast(src.as_bytes()).is_ok());
@@ -154,7 +171,12 @@ fn parser_private_formatting_helpers_cover_edge_cases() {
 #[test]
 fn strip_ending_space_handles_missing_and_out_of_bounds_nodes() {
     let mut parser = Parser::new();
-    assert!(parser.strip_ending_space(b"abc", 99).unwrap_err().contains("not found"));
+    assert!(
+        parser
+            .strip_ending_space(b"abc", 99)
+            .unwrap_err()
+            .contains("not found")
+    );
 
     let idx = parser.add_node(crate::types::ParseNode {
         kind: crate::types::NodeKind::Text,
@@ -220,14 +242,35 @@ fn parser_reports_internal_stack_invariant_errors() {
 }
 
 #[test]
+fn parser_reports_empty_stack_after_malformed_root_close() {
+    let source = "%}text";
+    let tokens = vec![
+        token(TokenKind::BlockClose, 0, 2),
+        token(TokenKind::Text, 2, 4),
+    ];
+    let line_index = LineIndex::new(source);
+    let mut parser = Parser::new();
+
+    let err = parser
+        .parse(&tokens, source.as_bytes(), &line_index)
+        .unwrap_err();
+
+    assert!(err.to_string().contains("empty parser stack"));
+}
+
+#[test]
+fn parser_unwind_stack_clears_empty_stack_without_work() {
+    let mut parser = Parser::new();
+    parser.unwind_stack(0);
+    assert_eq!(parser.stack.len(), 0);
+}
+
+#[test]
 fn parser_reports_unclosed_structures_from_token_stream() {
     for (source, tokens, expected) in [
         (
             "%foo(",
-            vec![
-                token(TokenKind::Macro, 0, 5),
-                token(TokenKind::EOF, 5, 0),
-            ],
+            vec![token(TokenKind::Macro, 0, 5), token(TokenKind::EOF, 5, 0)],
             "unclosed macro argument list",
         ),
         (
@@ -282,7 +325,9 @@ fn parser_direct_handlers_cover_internal_error_and_nested_comments() {
         root,
     ));
     parser.stack.push((ParserState::Param, root));
-    let err = parser.handle_param(token(TokenKind::CloseParen, 0, 1)).unwrap_err();
+    let err = parser
+        .handle_param(token(TokenKind::CloseParen, 0, 1))
+        .unwrap_err();
     assert!(err.to_string().contains("expected Macro below Param"));
 
     let comment = parser.add_node(crate::types::ParseNode {
@@ -327,7 +372,21 @@ fn parser_direct_handlers_cover_internal_error_and_nested_comments() {
     ));
     assert!(
         !block_parser
-            .handle_block(token(TokenKind::BlockClose, 0, 2), &ctx, 0, 0, BlockDelim::Square)
+            .handle_block(
+                token(TokenKind::BlockClose, 0, 2),
+                &ctx,
+                0,
+                0,
+                BlockDelim::Square
+            )
             .unwrap()
     );
+
+    let invalid_tag = Token {
+        kind: TokenKind::BlockOpen,
+        src: 0,
+        pos: 0,
+        length: 2,
+    };
+    assert_eq!(Parser::block_tag(&invalid_tag, &[0xff]), (1, 0));
 }

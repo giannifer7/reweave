@@ -166,6 +166,19 @@ fn eval_file_writes_output_to_existing_dir() {
 }
 
 #[test]
+fn eval_file_reports_write_errors() {
+    let tmp = TempDir::new().unwrap();
+    let input = create_temp_file("plain text");
+    let output_dir = tmp.path().join("output-dir");
+    std::fs::create_dir(&output_dir).unwrap();
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+
+    let err = eval_file(input.path(), &output_dir, &mut evaluator).unwrap_err();
+
+    assert!(err.to_string().contains("Cannot write"));
+}
+
+#[test]
 fn eval_files_with_config_creates_output_dir() {
     let tmp = TempDir::new().unwrap();
     let out_dir = tmp.path().join("new_output_dir");

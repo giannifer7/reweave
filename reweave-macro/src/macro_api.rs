@@ -67,10 +67,7 @@ pub fn process_file(
     output_file: &Path,
     evaluator: &mut Evaluator,
 ) -> Result<(), EvalError> {
-    if let Some(parent) = output_file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
-    }
+    ensure_parent_dir(output_file)?;
     let mut file = fs::File::create(output_file)
         .map_err(|e| EvalError::Runtime(format!("Cannot create {output_file:?}: {e}")))?;
     process_file_with_writer(input_file, &mut file, evaluator)
@@ -88,10 +85,7 @@ pub fn process_files(
         &mut stdout_handle
     } else {
         // Create parent directory if needed
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
-        }
+        ensure_parent_dir(output_path)?;
 
         // Open the output file
         file_handle = fs::File::create(output_path)
@@ -104,6 +98,15 @@ pub fn process_files(
         process_file_with_writer(input_path, writer, evaluator)?;
     }
 
+    Ok(())
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn ensure_parent_dir(output_path: &Path) -> Result<(), EvalError> {
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
+    }
     Ok(())
 }
 pub fn process_files_from_config(

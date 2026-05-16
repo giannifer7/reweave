@@ -5,6 +5,7 @@ use miette::Diagnostic;
 use reweave_macro::evaluator::{EvalConfig, EvalError, Evaluator};
 use reweave_macro::macro_api::process_string;
 use reweave_tangle::{Tangle, TangleConfig, TangleError};
+use std::io::Write;
 use thiserror::Error;
 use walkdir::WalkDir;
 
@@ -59,6 +60,10 @@ struct Args {
     #[arg(long = "no-macro")]
     no_macro: bool,
 
+    /// Expand macros and write the expanded Markdown to stdout without tangling.
+    #[arg(long = "macro-only", conflicts_with = "no_macro")]
+    macro_only: bool,
+
     /// Macro sigil.
     #[arg(long = "sigil", default_value = "%")]
     sigil: char,
@@ -107,14 +112,6 @@ fn main() -> miette::Result<()> {
 
 fn run(args: Args) -> Result<(), Error> {
     let inputs = collect_inputs(&args)?;
-    let mut tangle = Tangle::new(TangleConfig {
-        open_delim: args.open_delim,
-        close_delim: args.close_delim,
-        chunk_end: args.chunk_end,
-        comment_markers: args.comment_markers,
-        strict_undefined: true,
-        recursion_limit: args.recursion_limit,
-    });
 
     let mut evaluator = Evaluator::new(EvalConfig {
         sigil: args.sigil,
@@ -124,6 +121,25 @@ fn run(args: Args) -> Result<(), Error> {
         recursion_limit: args.recursion_limit,
     });
     apply_cli_defines(&mut evaluator, &args.define)?;
+
+    if args.macro_only {
+        let mut stdout = std::io::stdout().lock();
+        for input in inputs {
+            let text = std::fs::read_to_string(&input)?;
+            let bytes = process_string(&text, Some(&input), &mut evaluator)?;
+            stdout.write_all(&bytes)?;
+        }
+        return Ok(());
+    }
+
+    let mut tangle = Tangle::new(TangleConfig {
+        open_delim: args.open_delim,
+        close_delim: args.close_delim,
+        chunk_end: args.chunk_end,
+        comment_markers: args.comment_markers,
+        strict_undefined: true,
+        recursion_limit: args.recursion_limit,
+    });
 
     for input in inputs {
         let text = std::fs::read_to_string(&input)?;
@@ -208,6 +224,7 @@ mod tests {
             allow_env: false,
             env_prefix: None,
             define: Vec::new(),
+            macro_only: false,
             open_delim: reweave_tangle::DEFAULT_OPEN_DELIM.to_string(),
             close_delim: reweave_tangle::DEFAULT_CLOSE_DELIM.to_string(),
             chunk_end: reweave_tangle::DEFAULT_CHUNK_END.to_string(),

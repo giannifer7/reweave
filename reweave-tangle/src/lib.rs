@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
@@ -210,13 +212,7 @@ impl Tangle {
     pub fn read_file(&mut self, path: &Path) -> Result<(), TangleError> {
         let name = path.to_string_lossy().to_string();
         let idx = self.add_file_name(&name);
-        let text = if path == Path::new("-") {
-            let mut buf = String::new();
-            io::stdin().lock().read_to_string(&mut buf)?;
-            buf
-        } else {
-            fs::read_to_string(path)?
-        };
+        let text = read_path(path)?;
         self.read_with_idx(&text, idx);
         Ok(())
     }
@@ -250,9 +246,7 @@ impl Tangle {
             let rel = name.strip_prefix("@file ").unwrap_or(name).trim();
             path_is_safe(rel)?;
             let out_path = out_dir.join(rel);
-            if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
+            ensure_parent_dir(&out_path)?;
             let mut file = fs::File::create(&out_path)?;
             for line in self.expand(name)? {
                 file.write_all(line.as_bytes())?;
@@ -338,9 +332,7 @@ impl Tangle {
             let path = chunk_name.strip_prefix("@file ").unwrap_or(chunk_name);
             path_is_safe(path)
         } else if chunk_name.is_empty() {
-            Err(TangleError::UnsafePath {
-                path: chunk_name.to_string(),
-            })
+            empty_chunk_name_error(chunk_name)
         } else {
             Ok(())
         }
@@ -488,6 +480,37 @@ fn trim_blank_edge_lines(lines: Vec<String>) -> Vec<String> {
         .skip(start)
         .take(end.saturating_sub(start))
         .collect()
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn read_stdin() -> Result<String, TangleError> {
+    let mut buf = String::new();
+    io::stdin().lock().read_to_string(&mut buf)?;
+    Ok(buf)
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn read_path(path: &Path) -> Result<String, TangleError> {
+    if path == Path::new("-") {
+        read_stdin()
+    } else {
+        Ok(fs::read_to_string(path)?)
+    }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn empty_chunk_name_error(chunk_name: &str) -> Result<(), TangleError> {
+    Err(TangleError::UnsafePath {
+        path: chunk_name.to_string(),
+    })
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn ensure_parent_dir(path: &Path) -> Result<(), TangleError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(())
 }
 
 fn path_is_safe(path: &str) -> Result<(), TangleError> {
@@ -689,6 +712,16 @@ println!("hi");
     }
 
     #[test]
+    fn validate_chunk_name_rejects_empty_named_chunks() {
+        let t = Tangle::new(TangleConfig::default());
+
+        assert!(matches!(
+            t.validate_chunk_name("", false),
+            Err(TangleError::UnsafePath { .. })
+        ));
+    }
+
+    #[test]
     fn writes_outputs_directly() {
         let temp = tempfile::tempdir().unwrap();
         let t = read("```text\n# <[@file out.txt]>=\nhello\n# @\n```");
@@ -746,9 +779,7 @@ println!("hi");
 
     #[test]
     fn handles_reference_indent_shorter_than_definition_indent() {
-        let t = read(
-            "```text\n  # <[@file out.txt]>=\n# <[body]>\n# @\n# <[body]>=\nx\n# @\n```",
-        );
+        let t = read("```text\n  # <[@file out.txt]>=\n# <[body]>\n# @\n# <[body]>=\nx\n# @\n```");
 
         assert_eq!(t.expand("@file out.txt").unwrap().join(""), "x\n");
     }

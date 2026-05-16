@@ -54,9 +54,6 @@ impl Evaluator {
         for (binding, val) in binding_plan.named.iter().zip(named_vals.iter()) {
             self.state.set_variable(&binding.arg_name, val);
         }
-        for param_name in &binding_plan.unbound {
-            self.state.set_variable(param_name, "");
-        }
 
         self.state.call_depth += 1;
         let result = self.evaluate(&mac.body);

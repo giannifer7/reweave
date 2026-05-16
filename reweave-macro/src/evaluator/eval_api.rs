@@ -52,10 +52,7 @@ pub fn eval_file(
 
     let expanded = eval_string(&content, Some(input_file), evaluator)?;
 
-    if let Some(parent) = output_file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
-    }
+    ensure_parent_dir(output_file)?;
 
     fs::write(output_file, expanded.as_bytes())
         .map_err(|e| EvalError::Runtime(format!("Cannot write {output_file:?}: {e}")))?;
@@ -69,6 +66,15 @@ pub fn eval_file_with_config(
 ) -> EvalResult<()> {
     let mut evaluator = Evaluator::new(config);
     eval_file(input_file, output_file, &mut evaluator)
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn ensure_parent_dir(output_file: &Path) -> EvalResult<()> {
+    if let Some(parent) = output_file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
+    }
+    Ok(())
 }
 pub fn eval_files(
     inputs: &[PathBuf],

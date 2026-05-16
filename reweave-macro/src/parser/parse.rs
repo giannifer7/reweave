@@ -1,5 +1,16 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+enum ParseDispatch {
+    Block {
+        tag_pos: usize,
+        tag_len: usize,
+        delim: BlockDelim,
+    },
+    Param,
+    Comment,
+}
+
 impl Parser {
     /// Main parse function.
     /// `content` is the raw source bytes — used for block-tag comparison and diagnostics.
@@ -43,30 +54,16 @@ impl Parser {
                 break;
             }
 
-            let consumed = match self.stack.last().map(|&(st, _)| st) {
-                Some(ParserState::Block {
+            let consumed = match self.current_state_for_parse(token)? {
+                ParseDispatch::Block {
                     tag_pos,
                     tag_len,
                     delim,
-                }) => self.handle_block(token, &ctx, tag_pos, tag_len, delim)?,
-                Some(ParserState::Param) => self.handle_param(token)?,
-                Some(ParserState::Macro) => {
-                    // Macro is always below Param; receiving a token here is an
-                    // internal invariant violation.
-                    self.unwind_stack(token.end());
-                    return Err(ParserError::Parse(
-                        "internal error: token received in Macro state (Param expected on top)"
-                            .into(),
-                    ));
-                }
-                Some(ParserState::Comment) => {
+                } => self.handle_block(token, &ctx, tag_pos, tag_len, delim)?,
+                ParseDispatch::Param => self.handle_param(token)?,
+                ParseDispatch::Comment => {
                     self.handle_comment(token)?;
                     true
-                }
-                None => {
-                    return Err(ParserError::Parse(
-                        "internal error: empty parser stack".into(),
-                    ));
                 }
             };
 
@@ -152,42 +149,7 @@ impl Parser {
 
         // Report unclosed non-root structures (stack[0] is always the root block).
         if self.stack.len() > 1 {
-            let err = match self.stack.last().map(|&(st, idx)| (st, idx)) {
-                Some((
-                    ParserState::Block {
-                        tag_pos,
-                        tag_len,
-                        delim,
-                    },
-                    _,
-                )) => {
-                    let (open_ch, _) = block_delim_chars(delim);
-                    let label = block_tag_label(ctx.tag_str(tag_pos, tag_len), open_ch);
-                    let (line, col) = ctx.line_col(tag_pos);
-                    ParserError::Parse(format!("{line}:{col}: unclosed block '{label}'"))
-                }
-                Some((ParserState::Macro, idx)) | Some((ParserState::Param, idx)) => {
-                    let pos = self
-                        .nodes
-                        .get(idx)
-                        .expect("node index from stack must exist in arena")
-                        .token
-                        .pos;
-                    let (line, col) = ctx.line_col(pos);
-                    ParserError::Parse(format!("{line}:{col}: unclosed macro argument list"))
-                }
-                Some((ParserState::Comment, idx)) => {
-                    let pos = self
-                        .nodes
-                        .get(idx)
-                        .expect("node index from stack must exist in arena")
-                        .token
-                        .pos;
-                    let (line, col) = ctx.line_col(pos);
-                    ParserError::Parse(format!("{line}:{col}: unclosed block comment '%/*'"))
-                }
-                None => unreachable!(),
-            };
+            let err = self.unclosed_structure_error(&ctx);
             self.unwind_stack(end);
             return Err(err);
         }
@@ -197,5 +159,87 @@ impl Parser {
         self.stack.pop();
 
         Ok(())
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn current_state_for_parse(&mut self, token: Token) -> Result<ParseDispatch, ParserError> {
+        match self.stack.last().map(|&(st, _)| st) {
+            Some(ParserState::Macro) => {
+                self.macro_state_invariant_error(token)?;
+                unreachable!()
+            }
+            None => Err(Self::empty_stack_invariant_error()),
+            Some(ParserState::Block {
+                tag_pos,
+                tag_len,
+                delim,
+            }) => Ok(ParseDispatch::Block {
+                tag_pos,
+                tag_len,
+                delim,
+            }),
+            Some(ParserState::Param) => Ok(ParseDispatch::Param),
+            Some(ParserState::Comment) => Ok(ParseDispatch::Comment),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn unclosed_structure_error(&self, ctx: &ParseContext<'_>) -> ParserError {
+        match self.stack.last().map(|&(st, idx)| (st, idx)) {
+            Some((
+                ParserState::Block {
+                    tag_pos,
+                    tag_len,
+                    delim,
+                },
+                _,
+            )) => {
+                let (open_ch, _) = block_delim_chars(delim);
+                let label = block_tag_label(ctx.tag_str(tag_pos, tag_len), open_ch);
+                let (line, col) = ctx.line_col(tag_pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed block '{label}'"))
+            }
+            Some((ParserState::Macro, idx)) | Some((ParserState::Param, idx)) => {
+                let pos = self
+                    .nodes
+                    .get(idx)
+                    .expect("node index from stack must exist in arena")
+                    .token
+                    .pos;
+                let (line, col) = ctx.line_col(pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed macro argument list"))
+            }
+            Some((ParserState::Comment, idx)) => {
+                let pos = self
+                    .nodes
+                    .get(idx)
+                    .expect("node index from stack must exist in arena")
+                    .token
+                    .pos;
+                let (line, col) = ctx.line_col(pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed block comment '%/*'"))
+            }
+            None => Self::unclosed_stack_invariant_error(),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn macro_state_invariant_error(&mut self, token: Token) -> Result<(), ParserError> {
+        // Macro is always below Param; receiving a token here is an internal
+        // invariant violation.
+        self.unwind_stack(token.end());
+        Err(ParserError::Parse(
+            "internal error: token received in Macro state (Param expected on top)".into(),
+        ))
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn empty_stack_invariant_error() -> ParserError {
+        ParserError::Parse("internal error: empty parser stack".into())
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn unclosed_stack_invariant_error() -> ParserError {
+        unreachable!()
     }
 }

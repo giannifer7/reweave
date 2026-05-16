@@ -189,3 +189,13 @@ fn capitalize(s: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::capitalize;
+
+    #[test]
+    fn capitalize_accepts_empty_string() {
+        assert_eq!(capitalize(""), "");
+    }
+}

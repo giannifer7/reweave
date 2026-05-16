@@ -192,6 +192,14 @@ fn test_param_with_hyphen_is_rejected() {
 }
 
 #[test]
+fn test_set_is_rejected_in_macro_argument_position() {
+    let result = process_string_defaults("%def(use, x, %(x))%use(%set(name, value))");
+    let err = result.unwrap_err().to_string();
+
+    assert!(err.contains("%set is not allowed"));
+}
+
+#[test]
 fn test_eager_argument_evaluation_order() {
     // Arguments are evaluated in CALLER scope, before the callee frame is pushed.
     // %set in argument position is forbidden, so use a pure caller-scope read.

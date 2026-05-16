@@ -53,10 +53,16 @@ Run clippy with warnings denied:
 cargo clippy --workspace -- -D warnings
 ```
 
-Check coverage:
+Check coverage and fail if line coverage drops below the project floor:
 
 ```sh
-cargo llvm-cov --workspace --summary-only
+scripts/check-coverage.sh
+```
+
+The default floor is `99.5%`. Override it for stricter local checks:
+
+```sh
+REWEAVE_COVERAGE_MIN=99.7 scripts/check-coverage.sh
 ```
 
 ## Basic Use
@@ -110,6 +116,7 @@ Common options:
 --dir DIR                  Recursively read files under DIR
 --ext EXT                  Extension for --dir discovery, default: md
 --no-macro                 Tangle input without macro expansion
+--macro-only               Expand macros to stdout without tangling
 -D, --define NAME=VALUE    Define a top-level macro variable
 -I, --include DIR          Add a macro include/import search path
 --sigil CHAR               Change the macro sigil, default: %
@@ -133,6 +140,15 @@ Multiple inputs are processed in argument order:
 ```sh
 reweave chapters/intro.md chapters/impl.md --out generated
 ```
+
+Expand macros without tangling or writing `@file` chunks:
+
+```sh
+reweave input.md --macro-only > expanded.md
+```
+
+With multiple inputs, `--macro-only` writes each expanded document to stdout in
+argument order. It cannot be combined with `--no-macro`.
 
 ## Chunk Syntax
 
@@ -231,8 +247,9 @@ Use `--comment-marker` to configure accepted markers.
 
 ## Macro Language
 
-Macros are expanded before tangling unless `--no-macro` is used. The default
-sigil is `%`.
+Macros are expanded before tangling unless `--no-macro` is used. Use
+`--macro-only` to write the expanded Markdown to stdout without tangling. The
+default sigil is `%`.
 
 ### Variables
 

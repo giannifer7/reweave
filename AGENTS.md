@@ -34,7 +34,7 @@ whether it belongs in Reweave at all.
   direct writes.
 - Preserve strict macro semantics unless a change is explicitly requested.
 - Add tests for every macro-language or tangle behavior change.
-- Keep coverage at or above 95% line coverage.
+- Keep coverage at or above 99.5% line coverage.
 - Avoid adding CI, containers, installers, wheels, or release automation unless
   the project scope is deliberately expanded.
 
@@ -45,10 +45,11 @@ Run these before committing non-trivial changes:
 ```sh
 cargo test --workspace
 cargo clippy --workspace -- -D warnings
-cargo llvm-cov --workspace --summary-only
+scripts/check-coverage.sh
 ```
 
-The current coverage target is 95% line coverage.
+The current coverage target is 99.5% line coverage. The coverage check is
+deliberately fail-fast through `cargo llvm-cov --fail-under-lines`.
 
 ## Repository Layout
 

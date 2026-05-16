@@ -1,5 +1,5 @@
-use crate::evaluator::{EvalConfig, Evaluator};
 use crate::evaluator::output::{PreciseTracingOutput, SpanKind};
+use crate::evaluator::{EvalConfig, Evaluator};
 use crate::macro_api::{
     discover_includes_in_string, process_file, process_files, process_files_from_config,
     process_string, process_string_defaults, process_string_precise, process_string_tracing,
@@ -129,6 +129,13 @@ fn test_process_files_can_write_to_existing_parent() {
 }
 
 #[test]
+fn test_process_files_accepts_stdout_output_path_without_inputs() {
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+
+    process_files(&[], &PathBuf::from("-"), &mut evaluator).unwrap();
+}
+
+#[test]
 fn test_process_file_reports_output_parent_creation_errors() {
     let temp_dir = TempDir::new().unwrap();
     let input = create_temp_file(&temp_dir, "input.txt", "plain text");
@@ -170,8 +177,7 @@ fn test_process_file_wraps_input_context_on_eval_error() {
 #[test]
 fn test_process_string_tracing_records_literal_lines() {
     let mut evaluator = Evaluator::new(EvalConfig::default());
-    let (bytes, entries) =
-        process_string_tracing("alpha\nbeta\n", None, &mut evaluator).unwrap();
+    let (bytes, entries) = process_string_tracing("alpha\nbeta\n", None, &mut evaluator).unwrap();
 
     assert_eq!(String::from_utf8(bytes).unwrap(), "alpha\nbeta\n");
     assert_eq!(entries.len(), 2);
@@ -253,7 +259,8 @@ fn test_process_string_precise_tracks_named_arguments_and_alias_overrides() {
 #[test]
 fn test_process_string_tracing_records_computed_builtin_output() {
     let mut evaluator = Evaluator::new(EvalConfig::default());
-    let (bytes, entries) = process_string_tracing("%capitalize(word)", None, &mut evaluator).unwrap();
+    let (bytes, entries) =
+        process_string_tracing("%capitalize(word)", None, &mut evaluator).unwrap();
 
     assert_eq!(String::from_utf8(bytes).unwrap(), "Word");
     assert!(
@@ -270,9 +277,7 @@ fn test_process_string_tracing_propagates_macro_call_errors() {
     assert!(process_string_tracing("%missing()", None, &mut evaluator).is_err());
 
     let mut evaluator = Evaluator::new(EvalConfig::default());
-    assert!(
-        process_string_tracing("%def(one, x, %(x))%one()", None, &mut evaluator).is_err()
-    );
+    assert!(process_string_tracing("%def(one, x, %(x))%one()", None, &mut evaluator).is_err());
 
     let mut evaluator = Evaluator::new(EvalConfig {
         recursion_limit: 0,
