@@ -1,7 +1,7 @@
-# Literate Programming Lessons From Weaveback
+# Literate Programming Lessons
 
-Reweave exists because the Weaveback experiment produced useful pieces, but the
-full system became too complex for its payoff.
+Reweave exists because a heavier literate-programming system produced useful
+pieces, but the full system became too complex for its payoff.
 
 This document preserves the hard-earned design knowledge so future work can
 reuse the good parts without reconstructing the failed complexity.
@@ -197,5 +197,5 @@ expand chunks
 write files
 ```
 
-The implementation should remain easier to explain than the Weaveback system it
+The implementation should remain easier to explain than the heavier system it
 replaced.

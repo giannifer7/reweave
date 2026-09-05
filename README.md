@@ -152,6 +152,44 @@ reweave input.md --macro-only > expanded.md
 With multiple inputs, `--macro-only` writes each expanded document to stdout in
 argument order. It cannot be combined with `--no-macro`.
 
+## Using Reweave in a Project
+
+### Main documents and fragments
+
+A document that `%include`s another is a *main* document; the included
+file is a *fragment*. Feed reweave **main documents only**: `--dir` tangles every discovered
+file, and a fragment processed standalone will fail — either with
+`file chunk ... is already defined` (when the main document is in the same run) or
+with `referenced chunk ... is undefined` (when it is not). When using `--dir`,
+keep fragments in a separate directory that is not scanned, or list main
+files explicitly as inputs.
+
+### Build system integration
+
+Reweave intentionally has no depfile, stamp, or watch mode — it tangles inputs
+and writes outputs, nothing more. To embed it in a build graph:
+
+- Run it per build step and let the build tool track the *input* `.md` files as
+  dependencies (including fragments — reweave does not report which files a
+  main document pulled in, so depend on the whole source set).
+- Writes are content-aware: outputs whose content is unchanged keep their
+  mtime, so downstream compile steps are not re-triggered by a no-op
+  regeneration.
+- If you post-process the outputs (formatter, linter), compare before copying
+  them into place — the content-aware skip only covers reweave's own writes.
+
+### Macro strictness gotchas
+
+- Every chunk reference must be defined; reweave does not silently expand
+  missing chunks to nothing. Define an empty chunk (`# <[name]>=\n# @`) for
+  intentional extension points.
+- Macro variables are lexically scoped: a nested `%def` does **not** capture
+  the outer macro's parameters. Declare them explicitly and pass them at the
+  call site: `%def(inner, name, ...)` then `%inner(%(name))`.
+- Literal `%(...)` in prose is evaluated. Escape examples as `%%(...)`.
+- Error messages always carry `file:line:col`, so pipe failures through your
+  editor of choice.
+
 ## Chunk Syntax
 
 Chunk syntax is recognized inside normal text too, but it is intended to be
