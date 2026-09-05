@@ -8,7 +8,7 @@ pub(in crate::evaluator::builtins) fn builtin_eq(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage("eq: exactly 2 args".into()));
+        return Err(EvalError::InvalidUsage(None, "eq: exactly 2 args".into()));
     }
     let a = eval.evaluate(&parts[0])?;
     let b = eval.evaluate(&parts[1])?;
@@ -26,7 +26,7 @@ pub(in crate::evaluator::builtins) fn builtin_neq(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage("neq: exactly 2 args".into()));
+        return Err(EvalError::InvalidUsage(None, "neq: exactly 2 args".into()));
     }
     let a = eval.evaluate(&parts[0])?;
     let b = eval.evaluate(&parts[1])?;
@@ -46,7 +46,7 @@ pub(in crate::evaluator::builtins) fn builtin_not(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() > 1 {
-        return Err(EvalError::InvalidUsage("not: at most 1 arg".into()));
+        return Err(EvalError::InvalidUsage(None, "not: at most 1 arg".into()));
     }
     let x = if parts.is_empty() {
         String::new()

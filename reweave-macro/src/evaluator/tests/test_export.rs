@@ -31,7 +31,7 @@ mod tests {
         let source = "%export(foo, bar)";
         let result = process_string_defaults(source);
         match result {
-            Err(EvalError::InvalidUsage(msg)) => {
+            Err(EvalError::InvalidUsage(_, msg)) => {
                 assert!(
                     msg.contains("export: exactly 1 arg"),
                     "Unexpected error message: {}",

@@ -6,7 +6,7 @@ use crate::macro_api::process_string;
 fn test_env_is_disabled_by_default() {
     let mut eval = Evaluator::new(EvalConfig::default());
     let err = process_string("%env(PATH)", None, &mut eval).unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
     assert!(err.to_string().contains("--allow-env"));
 }
 
@@ -50,7 +50,7 @@ fn test_env_prefix_is_applied_when_configured() {
 fn test_eval_requires_macro_name() {
     let mut eval = Evaluator::new(EvalConfig::default());
     let err = process_string("%eval()", None, &mut eval).unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
     assert!(err.to_string().contains("eval requires macroName"));
 }
 
@@ -58,6 +58,6 @@ fn test_eval_requires_macro_name() {
 fn test_eval_with_whitespace_only_arg_is_still_missing_name() {
     let mut eval = Evaluator::new(EvalConfig::default());
     let err = process_string("%eval( )", None, &mut eval).unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
     assert!(err.to_string().contains("eval requires macroName"));
 }

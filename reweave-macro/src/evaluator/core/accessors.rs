@@ -14,7 +14,7 @@ impl Evaluator {
             if param_node.name.is_some() {
                 seen_named = true;
             } else if seen_named {
-                return Err(EvalError::InvalidUsage(format!(
+                return Err(EvalError::InvalidUsage(None, format!(
                     "macro '{}': positional argument follows named argument",
                     macro_name
                 )));
@@ -30,13 +30,13 @@ impl Evaluator {
         macro_name: &str,
     ) -> EvalResult<()> {
         if !declared.contains(arg_name) {
-            return Err(EvalError::InvalidUsage(format!(
+            return Err(EvalError::InvalidUsage(None, format!(
                 "macro '{}': unknown named argument '{arg_name}'",
                 macro_name
             )));
         }
         if assigned.contains(arg_name) {
-            return Err(EvalError::InvalidUsage(format!(
+            return Err(EvalError::InvalidUsage(None, format!(
                 "macro '{}': parameter '{arg_name}' bound both positionally and by name",
                 macro_name
             )));
@@ -61,7 +61,7 @@ impl Evaluator {
     ) -> EvalResult<()> {
         for param_node in param_nodes {
             if self.arg_contains_builtin_call(param_node, "set") {
-                return Err(EvalError::InvalidUsage(format!(
+                return Err(EvalError::InvalidUsage(None, format!(
                     "macro '{macro_name}': %set is not allowed in argument position"
                 )));
             }
@@ -86,7 +86,7 @@ impl Evaluator {
         let mut named = Vec::new();
 
         if positional_count > mac.params.len() {
-            return Err(EvalError::InvalidUsage(format!(
+            return Err(EvalError::InvalidUsage(None, format!(
                 "macro '{}': {} positional argument(s) given, but only {} parameter(s) declared",
                 mac.name,
                 positional_count,

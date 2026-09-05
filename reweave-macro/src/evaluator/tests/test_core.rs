@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use crate::evaluator::core::Evaluator;
-use crate::evaluator::output::{EvalOutput, PlainOutput};
 use crate::evaluator::state::EvalConfig;
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 
@@ -29,10 +28,6 @@ fn test_core_accessors() {
         .parse_string("hello", &PathBuf::from("<inline>"))
         .unwrap();
     assert_eq!(eval.evaluate(&ast).unwrap(), "hello");
-
-    let mut out = PlainOutput::new();
-    eval.evaluate_to(&ast, &mut out).unwrap();
-    assert_eq!(out.finish(), "hello");
 }
 
 #[test]
@@ -45,21 +40,6 @@ fn test_core_store_helpers_round_trip() {
     assert_eq!(eval.pystore_get("missing"), "");
 }
 
-#[test]
-fn test_core_record_and_drain_definition_helpers() {
-    let mut eval = Evaluator::new(EvalConfig::default());
-    eval.record_var_def("answer".into(), 1, 2, 3);
-    eval.record_macro_def("greet".into(), 4, 5, 6);
-
-    let var_defs = eval.drain_var_defs();
-    let macro_defs = eval.drain_macro_defs();
-    assert_eq!(var_defs.len(), 1);
-    assert_eq!(var_defs[0].var_name, "answer");
-    assert_eq!(macro_defs.len(), 1);
-    assert_eq!(macro_defs[0].macro_name, "greet");
-    assert!(eval.drain_var_defs().is_empty());
-    assert!(eval.drain_macro_defs().is_empty());
-}
 
 #[test]
 fn test_core_parse_string_real_file_and_source_wrappers() {
@@ -87,22 +67,6 @@ fn test_core_parse_string_real_file_and_source_wrappers() {
     );
 }
 
-#[test]
-fn test_discover_includes_in_string_records_paths() {
-    let temp = TempDir::new().unwrap();
-    let include_path = temp.path().join("inc.txt");
-    fs::write(&include_path, "included").unwrap();
-    let mut eval = Evaluator::new(EvalConfig {
-        include_paths: vec![temp.path().to_path_buf()],
-        ..EvalConfig::default()
-    });
-
-    let discovered =
-        crate::macro_api::discover_includes_in_string("%include(inc.txt)", None, &mut eval)
-            .unwrap();
-    assert_eq!(discovered, vec![include_path]);
-    assert!(eval.take_discovered_dependency_paths().is_empty());
-}
 
 #[test]
 fn test_core_do_include_accepts_absolute_existing_path() {
@@ -218,10 +182,6 @@ fn test_core_default_evaluation_branch_and_temporary_variables() {
         .unwrap();
     assert_eq!(result, "second");
     assert_eq!(eval.evaluate(&wrapper).unwrap(), "outer");
-
-    let mut out = PlainOutput::new();
-    eval.evaluate_to(&wrapper, &mut out).unwrap();
-    assert_eq!(out.finish(), "outer");
 }
 
 #[test]

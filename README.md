@@ -15,7 +15,9 @@ writes the requested files directly.
 - Expands `%` macros by default.
 - Scans code fences for chunk definitions.
 - Expands named chunk references.
-- Writes every `@file` chunk to an output directory.
+- Writes every `@file` chunk to an output directory — content-aware: files
+  whose content is unchanged are left untouched (mtime preserved), so
+  downstream build tools are not needlessly re-triggered.
 
 Reweave is intentionally forward-only: input Markdown goes in, generated files
 come out. It does not track provenance, reconcile hand edits in generated files,
@@ -403,9 +405,9 @@ Search paths are controlled with `-I` / `--include`.
 an existing macro. Named overrides freeze free variables for the alias:
 
 ```text
-%def(render, msg, [%(level)] %(msg))
-%alias(warn, render, level=WARNING)
-%warn(check this)
+%def(render, msg, [%(level)] %(msg))   # level is a free variable here
+%alias(warn, render, level=WARNING)    # the alias freezes it
+%warn(check this)                      # => [WARNING] check this
 ```
 
 ### Dynamic Calls
@@ -504,6 +506,18 @@ Reweave deliberately fails on ambiguous or unsafe input:
 - Macro recursion is bounded by `--recursion-limit`.
 - Output paths must be relative and safe.
 - `%set` is not allowed in macro argument position.
+
+Every error carries its exact source position, rendered as
+`file:line:col: <error>` — either the position of the offending construct or,
+for errors without their own position, the innermost macro call site they
+propagated through:
+
+```text
+Error: reweave::macro_expand
+
+  × macro expansion failed
+  ╰─▶ docs/main.md:2:1: Undefined variable: missing
+```
 
 ## Project Layout
 

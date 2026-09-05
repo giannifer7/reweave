@@ -3,7 +3,6 @@ mod params_basic;
 mod params_dfa;
 mod params_nested;
 mod pipeline;
-mod serialization;
 mod strip_comments;
 
 use super::*;

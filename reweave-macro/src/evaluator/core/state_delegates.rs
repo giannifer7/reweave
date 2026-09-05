@@ -38,23 +38,11 @@ impl Evaluator {
             let frame = self.state.current_scope_mut();
             for (name, value) in bindings {
                 if !seen.insert(name.clone()) {
-                    frame.variables.insert(
-                        name.clone(),
-                        TrackedValue {
-                            value: value.clone(),
-                            spans: vec![],
-                        },
-                    );
+                    frame.variables.insert(name.clone(), value.clone());
                     continue;
                 }
                 saved.push((name.clone(), frame.variables.get(name).cloned()));
-                frame.variables.insert(
-                    name.clone(),
-                    TrackedValue {
-                        value: value.clone(),
-                        spans: vec![],
-                    },
-                );
+                frame.variables.insert(name.clone(), value.clone());
             }
         }
 
@@ -72,35 +60,9 @@ impl Evaluator {
         result
     }
 
-    pub fn record_var_def(&mut self, var_name: String, src: u32, pos: u32, length: u32) {
-        self.state
-            .var_defs
-            .push(crate::evaluator::state::VarDefRaw {
-                var_name,
-                src,
-                pos,
-                length,
-            });
-    }
 
-    pub fn record_macro_def(&mut self, macro_name: String, src: u32, pos: u32, length: u32) {
-        self.state
-            .macro_defs
-            .push(crate::evaluator::state::MacroDefRaw {
-                macro_name,
-                src,
-                pos,
-                length,
-            });
-    }
 
-    pub fn drain_var_defs(&mut self) -> Vec<crate::evaluator::state::VarDefRaw> {
-        self.state.drain_var_defs()
-    }
 
-    pub fn drain_macro_defs(&mut self) -> Vec<crate::evaluator::state::MacroDefRaw> {
-        self.state.drain_macro_defs()
-    }
 
     pub fn push_warning(&mut self, msg: String) {
         self.state.push_warning(msg);

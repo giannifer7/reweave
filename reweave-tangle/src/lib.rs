@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 use regex::Regex;
@@ -240,17 +240,27 @@ impl Tangle {
         self.expand_inner(chunk_name, "", &mut state, 0, 0, RefOptions::default())
     }
 
+    /// Write every `@file` chunk under `out_dir`.
+    ///
+    /// Writes are content-aware: files whose current content already matches
+    /// the expanded output are left untouched (and their mtimes preserved),
+    /// so downstream build tools are not needlessly re-triggered.
+    /// Returns the paths of the files that were actually written.
     pub fn write_files(&self, out_dir: &Path) -> Result<Vec<PathBuf>, TangleError> {
         let mut written = Vec::new();
         for name in self.file_chunks() {
             let rel = name.strip_prefix("@file ").unwrap_or(name).trim();
             path_is_safe(rel)?;
             let out_path = out_dir.join(rel);
-            ensure_parent_dir(&out_path)?;
-            let mut file = fs::File::create(&out_path)?;
+            let mut content = Vec::new();
             for line in self.expand(name)? {
-                file.write_all(line.as_bytes())?;
+                content.extend_from_slice(line.as_bytes());
             }
+            if fs::read(&out_path).is_ok_and(|existing| existing == content) {
+                continue;
+            }
+            ensure_parent_dir(&out_path)?;
+            fs::write(&out_path, &content)?;
             written.push(out_path);
         }
         Ok(written)
@@ -756,6 +766,33 @@ println!("hi");
         let err = t.write_files(&blocked).unwrap_err();
 
         assert!(matches!(err, TangleError::Io(_)));
+    }
+
+    #[test]
+    fn write_files_skips_unchanged_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out.txt");
+        fs::write(&out, "hello\n").unwrap();
+        let before = fs::metadata(&out).unwrap().modified().unwrap();
+        let t = read("```text\n# <[@file out.txt]>=\nhello\n# @\n```");
+
+        let written = t.write_files(temp.path()).unwrap();
+
+        assert!(written.is_empty());
+        assert_eq!(fs::metadata(&out).unwrap().modified().unwrap(), before);
+    }
+
+    #[test]
+    fn write_files_rewrites_changed_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out.txt");
+        fs::write(&out, "stale\n").unwrap();
+        let t = read("```text\n# <[@file out.txt]>=\nfresh\n# @\n```");
+
+        let written = t.write_files(temp.path()).unwrap();
+
+        assert_eq!(written, vec![out.clone()]);
+        assert_eq!(fs::read_to_string(&out).unwrap(), "fresh\n");
     }
 
     #[test]

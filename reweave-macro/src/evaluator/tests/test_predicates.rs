@@ -65,7 +65,7 @@ fn test_not_used_in_if() {
 fn test_eq_wrong_arity() {
     assert!(matches!(
         process_string_defaults("%eq(a)"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
 }
 
@@ -73,7 +73,7 @@ fn test_eq_wrong_arity() {
 fn test_neq_wrong_arity() {
     assert!(matches!(
         process_string_defaults("%neq(a)"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
 }
 
@@ -81,7 +81,7 @@ fn test_neq_wrong_arity() {
 fn test_not_wrong_arity() {
     assert!(matches!(
         process_string_defaults("%not(a, b)"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
 }
 
@@ -104,14 +104,14 @@ fn test_builtin_name_guard_rejects_eq_redefinition() {
     // Attempting to redefine a builtin should fail
     assert!(matches!(
         process_string_defaults("%def(eq, a, b, %(a))"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
     assert!(matches!(
         process_string_defaults("%def(not, x, %(x))"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
     assert!(matches!(
         process_string_defaults("%redef(eq, a, b, %(a))"),
-        Err(EvalError::InvalidUsage(_))
+        Err(EvalError::InvalidUsage(..))
     ));
 }

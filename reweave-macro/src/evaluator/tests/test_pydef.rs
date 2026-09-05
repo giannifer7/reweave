@@ -1,5 +1,6 @@
 mod pydef_tests {
-    use crate::evaluator::{EvalConfig, Evaluator, eval_string};
+    use crate::evaluator::{EvalConfig, Evaluator};
+    use crate::macro_api::process_string;
 
     fn evaluator() -> Evaluator {
         Evaluator::new(EvalConfig::default())
@@ -10,7 +11,7 @@ mod pydef_tests {
         let mut ev = evaluator();
         let src = r#"%pydef(double, x, %{str(int(x) * 2)%})
 %double(21)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "42");
     }
 
@@ -21,7 +22,7 @@ mod pydef_tests {
 str(int(base) + int(size))
 %})
 %offset(256, 64)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "320");
     }
 
@@ -32,7 +33,7 @@ str(int(base) + int(size))
 "Hello, " + name + "!"
 %})
 %greet(world)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "Hello, world!");
     }
 
@@ -42,7 +43,7 @@ str(int(base) + int(size))
         let src = r#"%set(secret, hidden)
 %pydef(echo, x, %{x%})
 %echo(visible)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "visible");
     }
 
@@ -51,7 +52,7 @@ str(int(base) + int(size))
         let mut ev = evaluator();
         let src = r#"%pydef(broken, x, %{1 / 0%})
 %broken(foo)"#;
-        let result = eval_string(src, None, &mut ev);
+        let result = process_string(src, None, &mut ev).map(|b| String::from_utf8(b).unwrap());
         assert!(result.is_err(), "expected error from division by zero");
     }
 
@@ -62,7 +63,7 @@ str(int(base) + int(size))
         let mut ev = evaluator();
         let src = r#"%pyset(color, red)
 %pyget(color)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "red");
     }
 
@@ -74,7 +75,7 @@ str(int(base) + int(size))
 %pyset(counter, %increment())
 %pyset(counter, %increment())
 %pyget(counter)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "2");
     }
 
@@ -84,7 +85,7 @@ str(int(base) + int(size))
         let src = r#"%pyset(prefix, item_)
 %pydef(tagged, name, %{prefix + name%})
 %tagged(count)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "item_count");
     }
 
@@ -94,7 +95,7 @@ str(int(base) + int(size))
         let src = r#"%pyset(x, store_value)
 %pydef(identity, x, %{x%})
 %identity(param_value)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "param_value");
     }
 
@@ -107,7 +108,7 @@ str(int(base) + int(size))
 %pyset(total, %add(20))
 %pyset(total, %add(12))
 %pyget(total)"#;
-        let result = eval_string(src, None, &mut ev).expect("eval failed");
+        let result = String::from_utf8(process_string(src, None, &mut ev).expect("eval failed")).unwrap();
         assert_eq!(result.trim(), "42");
     }
 }

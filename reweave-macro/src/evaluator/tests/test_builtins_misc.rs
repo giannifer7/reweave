@@ -18,7 +18,7 @@ fn test_include_and_import_empty_filename_return_empty() {
 #[test]
 fn test_convert_case_wrong_arity_reports_error() {
     let err = eval_default("%convert_case(one)").unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
     assert!(err.to_string().contains("convert_case: exactly 2 args"));
 }
 
@@ -46,22 +46,6 @@ fn test_store_getters_require_key() {
 #[test]
 fn test_store_setters_require_two_args() {
     let err = eval_default("%pyset(one)").unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
 }
 
-#[test]
-fn test_discover_includes_in_file_records_import_target() {
-    let temp = TempDir::new().unwrap();
-    let include_path = temp.path().join("inc.txt");
-    std::fs::write(&include_path, "%def(x, y)").unwrap();
-    let main_path = temp.path().join("main.txt");
-    std::fs::write(&main_path, "%import(inc.txt)").unwrap();
-
-    let mut eval = Evaluator::new(EvalConfig {
-        include_paths: vec![temp.path().to_path_buf()],
-        ..EvalConfig::default()
-    });
-
-    let result = crate::macro_api::discover_includes_in_file(&main_path, &mut eval).unwrap();
-    assert_eq!(result, vec![include_path]);
-}

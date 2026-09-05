@@ -6,17 +6,11 @@ pub(in crate::evaluator::builtins) fn builtin_set(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage("set: exactly 2 args".into()));
+        return Err(EvalError::InvalidUsage(None, "set: exactly 2 args".into()));
     }
     let var_name = single_ident_param(eval, &node.parts[0], "var name")?;
     let value = eval.evaluate(&parts[1])?;
     eval.set_variable(&var_name, &value);
-    eval.record_var_def(
-        var_name,
-        node.token.src,
-        node.token.pos as u32,
-        (node.end_pos.saturating_sub(node.token.pos)) as u32,
-    );
     Ok("".into())
 }
 
@@ -38,19 +32,19 @@ pub(in crate::evaluator::builtins) fn builtin_alias(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() < 2 {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "alias: at least 2 args required: alias(new_name, source_name[, key = val, …])".into(),
         ));
     }
     if parts[0].name.is_some() || parts[1].name.is_some() {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "alias: new_name and source_name must be positional, not key=val".into(),
         ));
     }
     let new_name = single_ident_param(eval, &parts[0], "alias target name")?;
 
     if eval.is_builtin(&new_name) {
-        return Err(EvalError::InvalidUsage(format!(
+        return Err(EvalError::InvalidUsage(None, format!(
             "cannot alias to '{}': name is reserved as a built-in",
             new_name
         )));
@@ -58,7 +52,7 @@ pub(in crate::evaluator::builtins) fn builtin_alias(
 
     let source_name = single_ident_param(eval, &parts[1], "alias source name")?;
     let mut mac = eval.get_macro(&source_name).ok_or_else(|| {
-        EvalError::InvalidUsage(format!("alias: macro '{source_name}' is not defined"))
+        EvalError::InvalidUsage(None, format!("alias: macro '{source_name}' is not defined"))
     })?;
     mac.name = new_name.clone();
     mac.binding_kind = MacroBindingKind::Rebindable;
@@ -66,7 +60,7 @@ pub(in crate::evaluator::builtins) fn builtin_alias(
         let key = match part.name.as_ref() {
             Some(tok) => eval.extract_name_value(tok),
             None => {
-                return Err(EvalError::InvalidUsage(
+                return Err(EvalError::InvalidUsage(None, 
                     "alias: override arguments must be named (key = val)".into(),
                 ));
             }
@@ -75,12 +69,6 @@ pub(in crate::evaluator::builtins) fn builtin_alias(
         mac.frozen_args.insert(key, val);
     }
     eval.redefine_macro(mac)?;
-    eval.record_macro_def(
-        new_name,
-        node.token.src,
-        node.token.pos as u32,
-        (node.end_pos.saturating_sub(node.token.pos)) as u32,
-    );
     Ok("".into())
 }
 
@@ -90,7 +78,7 @@ pub(in crate::evaluator::builtins) fn builtin_export(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 1 {
-        return Err(EvalError::InvalidUsage("export: exactly 1 arg".into()));
+        return Err(EvalError::InvalidUsage(None, "export: exactly 1 arg".into()));
     }
     let name = single_ident_param(eval, &node.parts[0], "var name")?;
     eval.export(&name);
@@ -103,7 +91,7 @@ pub(in crate::evaluator::builtins) fn builtin_eval(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
-        return Err(EvalError::InvalidUsage("eval requires macroName".into()));
+        return Err(EvalError::InvalidUsage(None, "eval requires macroName".into()));
     }
     let macro_name = eval.evaluate(&parts[0])?;
     let macro_name = macro_name.trim();

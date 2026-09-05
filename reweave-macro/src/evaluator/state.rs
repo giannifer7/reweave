@@ -1,5 +1,4 @@
 use crate::evaluator::errors::{EvalError, EvalResult};
-use crate::evaluator::output::{SourceSpan, SpanRange};
 use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -48,18 +47,9 @@ pub struct MacroDefinition {
     pub binding_kind: MacroBindingKind,
     pub frozen_args: HashMap<String, String>,
 }
-#[derive(Debug, Clone)]
-pub struct TrackedValue {
-    pub value: String,
-    /// Per-token span ranges relative to `value[0]`.
-    /// Empty means untracked (script/builtin result).
-    /// Single entry covering `[0, value.len()]` is the coarse-span fast path.
-    /// Multiple entries carry full per-token attribution threaded through argument evaluation.
-    pub spans: Vec<SpanRange>,
-}
 #[derive(Debug, Default, Clone)]
 pub struct ScopeFrame {
-    pub variables: HashMap<String, TrackedValue>,
+    pub variables: HashMap<String, String>,
     pub macros: HashMap<String, MacroDefinition>,
 }
 pub struct SourceManager {
@@ -107,43 +97,13 @@ impl SourceManager {
         &self.file_names
     }
 }
-/// Raw record of a `%set(var_name, ...)` call site, captured during evaluation.
-/// Positions are absolute byte offsets in the source file (same as Token.pos / Token.length).
-#[derive(Debug, Clone)]
-pub struct VarDefRaw {
-    pub var_name: String,
-    /// Source file index (same as Token.src).
-    pub src: u32,
-    /// Byte offset of the `set` keyword in the source.
-    pub pos: u32,
-    /// Byte length of the whole `set(...)` call.
-    pub length: u32,
-}
-/// Raw record of a `%def / %pydef(name, ...)` call site.
-#[derive(Debug, Clone)]
-pub struct MacroDefRaw {
-    pub macro_name: String,
-    /// Source file index (same as Token.src).
-    pub src: u32,
-    /// Byte offset of the def keyword in the source.
-    pub pos: u32,
-    /// Byte length of the whole def(...) call.
-    pub length: u32,
-}
 pub struct EvaluatorState {
     pub config: EvalConfig,
-    pub(crate) dependency_discovery_active: bool,
     pub scope_stack: Vec<ScopeFrame>,
     pub open_includes: HashSet<PathBuf>,
     pub current_file: PathBuf,
     pub source_manager: SourceManager,
     pub call_depth: usize,
-    /// Populated during dependency discovery: every path resolved by `%include`/`%import`.
-    pub discovered_dependency_paths: Vec<PathBuf>,
-    /// Accumulated `%set` call sites for the var_defs_map.
-    pub var_defs: Vec<VarDefRaw>,
-    /// Accumulated `%def/%pydef` call sites for the macro_defs_map.
-    pub macro_defs: Vec<MacroDefRaw>,
     /// Diagnostic warnings collected during evaluation (non-fatal).
     pub warnings: Vec<String>,
 }
@@ -152,15 +112,11 @@ impl EvaluatorState {
     pub fn new(config: EvalConfig) -> Self {
         Self {
             config,
-            dependency_discovery_active: false,
             scope_stack: vec![ScopeFrame::default()],
             open_includes: HashSet::new(),
             current_file: PathBuf::from(""),
             source_manager: SourceManager::new(),
             call_depth: 0,
-            discovered_dependency_paths: Vec::new(),
-            var_defs: Vec::new(),
-            macro_defs: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -173,13 +129,7 @@ impl EvaluatorState {
         std::mem::take(&mut self.warnings)
     }
 
-    pub fn drain_var_defs(&mut self) -> Vec<VarDefRaw> {
-        std::mem::take(&mut self.var_defs)
-    }
 
-    pub fn drain_macro_defs(&mut self) -> Vec<MacroDefRaw> {
-        std::mem::take(&mut self.macro_defs)
-    }
 
     pub fn push_scope(&mut self) {
         self.scope_stack.push(ScopeFrame::default());
@@ -197,41 +147,12 @@ impl EvaluatorState {
 
     /// Set a variable with no origin tracking for computed values.
     pub fn set_variable(&mut self, name: &str, value: &str) {
-        self.current_scope_mut().variables.insert(
-            name.into(),
-            TrackedValue {
-                value: value.into(),
-                spans: vec![],
-            },
-        );
-    }
-
-    /// Set a variable with a single coarse origin span (fast path).
-    pub fn set_tracked_variable(&mut self, name: &str, value: &str, span: Option<SourceSpan>) {
-        let spans = if let Some(sp) = span {
-            vec![SpanRange {
-                start: 0,
-                end: value.len(),
-                span: sp,
-            }]
-        } else {
-            vec![]
-        };
-        self.current_scope_mut().variables.insert(
-            name.into(),
-            TrackedValue {
-                value: value.into(),
-                spans,
-            },
-        );
-    }
-
-    /// Set a variable with full per-token span attribution (precise tracing path).
-    pub fn set_traced_variable(&mut self, name: &str, value: String, spans: Vec<SpanRange>) {
         self.current_scope_mut()
             .variables
-            .insert(name.into(), TrackedValue { value, spans });
+            .insert(name.into(), value.into());
     }
+
+
 
     /// Retrieve just the string value of a variable.
     pub fn get_variable(&self, name: &str) -> String {
@@ -242,25 +163,18 @@ impl EvaluatorState {
         self.scope_stack
             .last()
             .and_then(|frame| frame.variables.get(name))
-            .map(|tv| tv.value.clone())
-    }
-
-    /// Retrieve the tracked value of a variable.
-    pub fn get_tracked_variable(&self, name: &str) -> Option<TrackedValue> {
-        self.scope_stack
-            .last()
-            .and_then(|frame| frame.variables.get(name))
             .cloned()
     }
+
 
     pub fn define_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
         if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
             return match existing.binding_kind {
-                MacroBindingKind::Constant => Err(EvalError::InvalidUsage(format!(
+                MacroBindingKind::Constant => Err(EvalError::InvalidUsage(None, format!(
                     "cannot define macro '{}': constant binding already exists in current scope",
                     mac.name
                 ))),
-                MacroBindingKind::Rebindable => Err(EvalError::InvalidUsage(format!(
+                MacroBindingKind::Rebindable => Err(EvalError::InvalidUsage(None, format!(
                     "cannot define macro '{}': rebindable binding already exists in current scope; use %redef",
                     mac.name
                 ))),
@@ -276,7 +190,7 @@ impl EvaluatorState {
         if let Some(existing) = self.current_scope_mut().macros.get(&mac.name)
             && existing.binding_kind == MacroBindingKind::Constant
         {
-            return Err(EvalError::InvalidUsage(format!(
+            return Err(EvalError::InvalidUsage(None, format!(
                 "cannot redefine macro '{}': constant binding already exists in current scope",
                 mac.name
             )));

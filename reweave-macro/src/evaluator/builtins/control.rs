@@ -30,21 +30,21 @@ pub(in crate::evaluator::builtins) fn builtin_match(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() < 2 {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "match: expected at least (value, default)".into(),
         ));
     }
     if !(parts.len() - 2).is_multiple_of(2) {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "match: regex/value arguments must come in pairs".into(),
         ));
     }
 
     let value = eval.evaluate(&parts[0])?;
-    for pair in parts[2..].chunks_exact(2) {
+    for pair in parts[2..].as_chunks::<2>().0 {
         let pattern = eval.evaluate(&pair[0])?;
         let regex = Regex::new(&pattern).map_err(|e| {
-            EvalError::BuiltinError(format!("match: invalid regex {pattern:?}: {e}"))
+            EvalError::BuiltinError(None, format!("match: invalid regex {pattern:?}: {e}"))
         })?;
         let Some(captures) = regex.captures(&value) else {
             continue;

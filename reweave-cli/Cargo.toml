@@ -7,7 +7,6 @@ license.workspace = true
 description = "Forward-only Markdown macro/tangle tool"
 
 [dependencies]
-anyhow.workspace = true
 clap.workspace = true
 miette.workspace = true
 reweave-core.workspace = true

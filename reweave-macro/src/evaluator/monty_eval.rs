@@ -1,4 +1,5 @@
-use monty::{MontyObject, MontyRun};
+use monty::MontyRun;
+use monty_types::{CompileOptions, MontyObject};
 use std::collections::{HashMap, HashSet};
 pub struct MontyEvaluator;
 
@@ -39,8 +40,13 @@ impl MontyEvaluator {
             .collect();
         all_args.extend(args.iter().map(|s| MontyObject::String(s.clone())));
 
-        let runner = MontyRun::new(code.to_owned(), &format!("{macro_name}.py"), all_params)
-            .map_err(|e| format!("pydef '{macro_name}': compile error: {e:?}"))?;
+        let runner = MontyRun::new(
+            code.to_owned(),
+            &format!("{macro_name}.py"),
+            all_params,
+            CompileOptions::default(),
+        )
+        .map_err(|e| format!("pydef '{macro_name}': compile error: {e:?}"))?;
 
         let result = runner
             .run_no_limits(all_args)

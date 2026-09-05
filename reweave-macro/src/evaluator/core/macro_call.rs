@@ -7,7 +7,7 @@ impl Evaluator {
         }
 
         if self.state.call_depth >= self.state.config.recursion_limit {
-            return Err(EvalError::Runtime(format!(
+            return Err(EvalError::Runtime(None, format!(
                 "maximum recursion depth ({}) exceeded in macro '{}'",
                 self.state.config.recursion_limit, name
             )));
@@ -15,7 +15,12 @@ impl Evaluator {
 
         let mac = match self.state.get_macro(name) {
             Some(m) => m,
-            None => return Err(EvalError::UndefinedMacro(name.into())),
+            None => {
+                return Err(EvalError::UndefinedMacro {
+                    name: name.into(),
+                    location: self.node_location(node),
+                })
+            }
         };
 
         let param_nodes = Self::macro_param_nodes(node);
@@ -29,6 +34,7 @@ impl Evaluator {
             return Err(EvalError::UnboundParameter {
                 macro_name: mac.name.clone(),
                 param_name: (*param_name).to_string(),
+                location: self.node_location(node),
             });
         }
 
@@ -73,7 +79,7 @@ impl Evaluator {
                 result = self
                     .monty_evaluator
                     .evaluate(&result, &mac.params, &args, &self.py_store, Some(&mac.name))
-                    .map_err(EvalError::Runtime)?;
+                    .map_err(|e| EvalError::Runtime(None, e))?;
             }
         }
 

@@ -14,24 +14,20 @@ authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"
 
 [workspace.dependencies]
-anyhow = "1.0"
-assert_cmd = "2.0"
-chrono = "0.4"
-clap = { version = "4.4", features = ["derive"] }
-escargot = "0.5"
-lazy_static = "1.4"
+clap = { version = "4.6", features = ["derive"] }
 memchr = "2"
 miette = { version = "7", features = ["fancy"] }
-monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.17" }
-predicates = "3.0"
+monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.21" }
+monty-types = { git = "https://github.com/pydantic/monty", tag = "v0.0.21" }
+# NOTE: monty v0.0.21 pulls in ruff_python_ast 0.0.3, which breaks with
+# get-size2 >= 0.10.1 (its GetSize impl moved to compact_str 0.10 while
+# ruff_python_ast still uses compact_str 0.9). After any `cargo update`,
+# re-pin with: cargo update -p get-size2 --precise 0.10.0
 pretty_assertions = "1.4"
-regex = "1.9"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tempfile = "3.8"
+regex = "1.13"
+tempfile = "3.27"
 thiserror = "2.0"
 walkdir = "2"
-wasm-bindgen = "0.2.84"
 
 reweave-core = { path = "reweave-core" }
 reweave-macro = { path = "reweave-macro" }

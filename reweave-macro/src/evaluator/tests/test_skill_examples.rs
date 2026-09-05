@@ -70,7 +70,7 @@ fn test_too_many_args_is_error() {
          %greet(Alice, Bob, Charlie)",
     );
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "expected InvalidUsage for extra positional args, got: {result:?}"
     );
 }
@@ -147,7 +147,7 @@ fn test_positional_after_named_is_error() {
          %f(a = X, Y)",
     );
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "expected InvalidUsage for positional-after-named, got: {result:?}"
     );
 }
@@ -160,7 +160,7 @@ fn test_double_bind_is_error() {
          %f(X, a = Y)",
     );
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "expected InvalidUsage for double-bind, got: {result:?}"
     );
 }
@@ -173,7 +173,7 @@ fn test_unknown_named_param_is_error() {
          %greet(name = Alice, typo = oops)",
     );
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "expected InvalidUsage for unknown named arg, got: {result:?}"
     );
 }

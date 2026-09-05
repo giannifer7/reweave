@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum TokenKind {
     Text = 0,
@@ -21,7 +20,7 @@ pub enum TokenKind {
     VerbatimClose = 15,
     EOF = 16,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NodeKind {
     /// Discriminant 0 is intentionally reserved so Rust and Python discriminants align:
     /// Python IntEnum starts at 1 by default, matching Text=1 here.

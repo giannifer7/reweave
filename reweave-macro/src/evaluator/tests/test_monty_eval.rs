@@ -53,6 +53,7 @@ fn test_monty_evaluate_runtime_error_contains_macro_name() {
 }
 
 #[test]
+#[allow(clippy::default_constructed_unit_structs)]
 fn test_monty_default_matches_new() {
     let eval = MontyEvaluator::default();
     let result = eval

@@ -12,13 +12,20 @@ impl Evaluator {
                 let var_name = self.node_text(node);
                 let val = match self.state.get_variable_opt(&var_name) {
                     Some(v) => v,
-                    None => return Err(EvalError::UndefinedVariable(var_name)),
+                    None => {
+                        return Err(EvalError::UndefinedVariable {
+                            name: var_name,
+                            location: self.node_location(node),
+                        })
+                    }
                 };
                 out.push_str(&val);
             }
             NodeKind::Macro => {
                 let name = self.node_text(node);
-                let expansion = self.evaluate_macro_call(node, &name)?;
+                let expansion = self
+                    .evaluate_macro_call(node, &name)
+                    .map_err(|e| e.ensure_location(self.node_location(node)))?;
                 out.push_str(&expansion);
             }
             NodeKind::Block | NodeKind::Param => {

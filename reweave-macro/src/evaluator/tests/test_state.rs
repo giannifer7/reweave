@@ -2,7 +2,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::evaluator::output::{SourceSpan, SpanKind, SpanRange};
 use crate::evaluator::state::{
     EvalConfig, EvaluatorState, MacroBindingKind, MacroDefinition, ScriptKind, SourceManager,
 };
@@ -71,42 +70,6 @@ fn test_state_variables_are_current_frame_only() {
     assert_eq!(st.scope_stack.len(), 1);
 }
 
-#[test]
-fn test_state_tracked_and_traced_variables() {
-    let mut st = EvaluatorState::new(EvalConfig::default());
-    let span = SourceSpan {
-        src: 0,
-        pos: 3,
-        length: 2,
-        kind: SpanKind::Literal,
-    };
-    st.set_tracked_variable("a", "hi", Some(span.clone()));
-    let tracked = st.get_tracked_variable("a").unwrap();
-    assert_eq!(tracked.value, "hi");
-    assert_eq!(tracked.spans.len(), 1);
-    assert_eq!(tracked.spans[0].start, 0);
-    assert_eq!(tracked.spans[0].end, 2);
-
-    st.set_traced_variable(
-        "b",
-        "hello".to_string(),
-        vec![SpanRange {
-            start: 1,
-            end: 4,
-            span,
-        }],
-    );
-    let traced = st.get_tracked_variable("b").unwrap();
-    assert_eq!(traced.value, "hello");
-    assert_eq!(traced.spans.len(), 1);
-    assert_eq!(traced.spans[0].start, 1);
-    assert_eq!(traced.spans[0].end, 4);
-
-    st.set_tracked_variable("empty_span", "value", None);
-    let unspanned = st.get_tracked_variable("empty_span").unwrap();
-    assert_eq!(unspanned.value, "value");
-    assert!(unspanned.spans.is_empty());
-}
 
 #[test]
 fn test_state_define_macro_and_lookup_shadowing() {
@@ -200,27 +163,10 @@ fn test_state_rebindable_macro_can_be_replaced() {
 }
 
 #[test]
-fn test_state_drain_defs_and_unicode_sigil() {
-    let mut st = EvaluatorState::new(EvalConfig {
+fn test_state_unicode_sigil() {
+    let st = EvaluatorState::new(EvalConfig {
         sigil: '§',
         ..EvalConfig::default()
     });
-    st.var_defs.push(crate::evaluator::state::VarDefRaw {
-        var_name: "x".into(),
-        src: 0,
-        pos: 1,
-        length: 2,
-    });
-    st.macro_defs.push(crate::evaluator::state::MacroDefRaw {
-        macro_name: "m".into(),
-        src: 0,
-        pos: 3,
-        length: 4,
-    });
-
     assert_eq!(st.get_sigil(), "§".as_bytes());
-    assert_eq!(st.drain_var_defs().len(), 1);
-    assert_eq!(st.drain_macro_defs().len(), 1);
-    assert!(st.drain_var_defs().is_empty());
-    assert!(st.drain_macro_defs().is_empty());
 }

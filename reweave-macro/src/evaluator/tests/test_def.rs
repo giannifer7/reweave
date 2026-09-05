@@ -6,35 +6,35 @@ fn test_def_macro_other_errors() {
     // Test missing arguments
     let result = process_string_defaults("%def()");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "Expected InvalidUsage error for empty def"
     );
 
     // Test single argument
     let result = process_string_defaults("%def(foo)");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "Expected InvalidUsage error for def with only name"
     );
 
     // Test numeric name
     let result = process_string_defaults("%def(123, body)");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "Expected InvalidUsage error for numeric macro name"
     );
 
     // Test numeric parameter
     let result = process_string_defaults("%def(foo, 123, body)");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "Expected InvalidUsage error for numeric parameter"
     );
 
     // Test parameter with equals
     let result = process_string_defaults("%def(foo, param=value, body)");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "Expected InvalidUsage error for parameter with equals"
     );
 }
@@ -66,20 +66,20 @@ fn test_def_macro_trailing_comma_is_ignored() {
 #[test]
 fn test_def_macro_comma_errors() {
     let result = process_string_defaults("%def(foo bar baz, body)");
-    assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
+    assert!(matches!(result, Err(EvalError::InvalidUsage(..))));
 
     let result = process_string_defaults("%def(,)");
-    assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
+    assert!(matches!(result, Err(EvalError::InvalidUsage(..))));
 
     let result = process_string_defaults("%def(foo,,)");
-    assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
+    assert!(matches!(result, Err(EvalError::InvalidUsage(..))));
 }
 
 #[test]
 fn test_def_rejects_duplicate_formal_parameter() {
     let err = process_string_defaults("%def(foo, x, x, %(x))").unwrap_err();
 
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
+    assert!(matches!(err, EvalError::InvalidUsage(..)));
     assert!(err.to_string().contains("already used"));
 }
 
@@ -126,7 +126,7 @@ fn test_recursion_depth_limit_returns_error() {
     // return a Runtime error rather than stack-overflowing the process.
     let result = process_string_defaults("%def(loop, %loop())\n%loop()");
     assert!(
-        matches!(result, Err(EvalError::Runtime(_))),
+        matches!(result, Err(EvalError::Runtime(..))),
         "expected Runtime error for infinite recursion, got {:?}",
         result
     );
@@ -144,7 +144,7 @@ fn test_mutual_recursion_depth_limit() {
     let src = "%def(a, %b())\n%def(b, %a())\n%a()";
     let result = process_string_defaults(src);
     assert!(
-        matches!(result, Err(EvalError::Runtime(_))),
+        matches!(result, Err(EvalError::Runtime(..))),
         "expected Runtime error for mutual recursion, got {:?}",
         result
     );
@@ -185,7 +185,7 @@ fn test_param_with_hyphen_is_rejected() {
     // Hyphens lex as Special tokens; `single_ident_param` must reject them.
     let result = process_string_defaults("%def(foo, my-param, body)");
     assert!(
-        matches!(result, Err(EvalError::InvalidUsage(_))),
+        matches!(result, Err(EvalError::InvalidUsage(..))),
         "expected InvalidUsage for hyphenated param name, got {:?}",
         result
     );

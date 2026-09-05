@@ -1,10 +1,8 @@
 // crates/reweave-macro/src/ast/mod.rs — generated from ast.adoc
 use thiserror::Error;
 mod build;
-pub mod serialization;
 mod strip;
 
-pub use serialization::{dump_macro_ast, serialize_ast_nodes};
 #[cfg(test)]
 mod tests;
 

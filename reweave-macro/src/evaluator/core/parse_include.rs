@@ -9,7 +9,16 @@ impl Evaluator {
 
         let result =
             crate::evaluator::lexer_parser::lex_parse_content(text, self.state.config.sigil, src);
-        result.map_err(EvalError::ParseError)
+        result.map_err(|e| {
+            EvalError::ParseError(
+                Some(SourceLocation {
+                    file: path.display().to_string(),
+                    line: 1,
+                    col: 1,
+                }),
+                e,
+            )
+        })
     }
 
     pub(super) fn find_file(&self, filename: &str) -> EvalResult<PathBuf> {
@@ -23,6 +32,6 @@ impl Evaluator {
                 return Ok(candidate);
             }
         }
-        Err(EvalError::IncludeNotFound(filename.into()))
+        Err(EvalError::IncludeNotFound(None, filename.into()))
     }
 }

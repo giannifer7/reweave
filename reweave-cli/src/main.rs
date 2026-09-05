@@ -187,10 +187,10 @@ fn has_extension(path: &Path, extensions: &[String]) -> bool {
 fn apply_cli_defines(eval: &mut Evaluator, defines: &[String]) -> Result<(), EvalError> {
     for item in defines {
         let (name, value) = item.split_once('=').ok_or_else(|| {
-            EvalError::InvalidUsage(format!("define: expected NAME=VALUE, got '{item}'"))
+            EvalError::InvalidUsage(None, format!("define: expected NAME=VALUE, got '{item}'"))
         })?;
         if !is_ascii_identifier(name) {
-            return Err(EvalError::InvalidUsage(format!(
+            return Err(EvalError::InvalidUsage(None, format!(
                 "define: '{name}' is not a valid identifier"
             )));
         }

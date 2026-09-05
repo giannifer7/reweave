@@ -47,7 +47,7 @@ pub(in crate::evaluator::builtins) fn builtin_convert_case(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "convert_case: exactly 2 args".into(),
         ));
     }

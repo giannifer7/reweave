@@ -77,7 +77,7 @@ fn test_include_missing_file() {
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
     let result = process_string("%include(missing.txt)", None, &mut evaluator);
-    assert!(matches!(result, Err(EvalError::IncludeNotFound(_))));
+    assert!(matches!(result, Err(EvalError::IncludeNotFound(..))));
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn test_include_self_inclusion() {
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
     let result = process_string("%include(self_include.txt)", None, &mut evaluator);
-    assert!(matches!(result, Err(EvalError::CircularInclude(_))));
+    assert!(matches!(result, Err(EvalError::CircularInclude(..))));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn test_include_mutual_inclusion() {
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
     let result = process_string("%include(file_a.txt)", None, &mut evaluator);
-    assert!(matches!(result, Err(EvalError::CircularInclude(_))));
+    assert!(matches!(result, Err(EvalError::CircularInclude(..))));
 }
 
 #[test]
@@ -143,14 +143,14 @@ fn test_include_path_cleaned_up_on_error() {
 
     let result1 = process_string("%include(bad.txt)", None, &mut evaluator);
     assert!(
-        matches!(result1, Err(EvalError::UndefinedMacro(_))),
+        matches!(result1, Err(EvalError::UndefinedMacro { .. })),
         "Expected UndefinedMacro on first include, got: {:?}",
         result1
     );
 
     let result2 = process_string("%include(bad.txt)", None, &mut evaluator);
     assert!(
-        matches!(result2, Err(EvalError::UndefinedMacro(_))),
+        matches!(result2, Err(EvalError::UndefinedMacro { .. })),
         "Expected UndefinedMacro on second include (not CircularInclude), got: {:?}",
         result2
     );
@@ -175,9 +175,9 @@ fn test_include_scope() {
     );
     let result = process_string_defaults(&source);
     match result {
-        Err(EvalError::UndefinedMacro(m)) => {
+        Err(EvalError::UndefinedMacro { name, .. }) => {
             assert_eq!(
-                m, "included_macro",
+                name, "included_macro",
                 "Expected UndefinedMacro error for 'included_macro'"
             );
         }

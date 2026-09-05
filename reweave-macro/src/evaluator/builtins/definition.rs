@@ -15,13 +15,13 @@ fn define_macro(
     config: DefMacroConfig,
 ) -> EvalResult<String> {
     if node.parts.len() < 2 {
-        return Err(EvalError::InvalidUsage(config.min_params_error));
+        return Err(EvalError::InvalidUsage(None, config.min_params_error));
     }
 
     let macro_name = single_ident_param(eval, &node.parts[0], &config.name_param_context)?;
 
     if eval.is_builtin(&macro_name) {
-        return Err(EvalError::InvalidUsage(format!(
+        return Err(EvalError::InvalidUsage(None, format!(
             "cannot define macro '{}': name is reserved as a built-in",
             macro_name
         )));
@@ -35,7 +35,7 @@ fn define_macro(
         |mut acc, param_node| {
             let param_name = single_ident_param(eval, param_node, &config.formal_param_context)?;
             if !seen.insert(param_name.clone()) {
-                return Err(EvalError::InvalidUsage(format!(
+                return Err(EvalError::InvalidUsage(None, format!(
                     "{}: parameter '{}' already used",
                     config.duplicate_param_error, param_name
                 )));
@@ -58,12 +58,6 @@ fn define_macro(
     } else {
         eval.define_macro(mac)?;
     }
-    eval.record_macro_def(
-        macro_name,
-        node.token.src,
-        node.token.pos as u32,
-        (node.end_pos.saturating_sub(node.token.pos)) as u32,
-    );
     Ok("".into())
 }
 pub(in crate::evaluator::builtins) fn builtin_def(

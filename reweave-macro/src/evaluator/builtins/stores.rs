@@ -6,7 +6,7 @@ pub(in crate::evaluator::builtins) fn builtin_pyset(
 ) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "pyset: exactly 2 args (key, value)".into(),
         ));
     }
@@ -21,7 +21,7 @@ pub(in crate::evaluator::builtins) fn builtin_pyget(
     node: &ASTNode,
 ) -> EvalResult<String> {
     if node.parts.is_empty() {
-        return Err(EvalError::InvalidUsage("pyget: requires a key".into()));
+        return Err(EvalError::InvalidUsage(None, "pyget: requires a key".into()));
     }
     let key = single_ident_param(eval, &node.parts[0], "store key")?;
     Ok(eval.pystore_get(&key))
@@ -31,7 +31,7 @@ pub(in crate::evaluator::builtins) fn builtin_env(
     node: &ASTNode,
 ) -> EvalResult<String> {
     if !eval.allow_env() {
-        return Err(EvalError::InvalidUsage(
+        return Err(EvalError::InvalidUsage(None, 
             "env: environment variable access is disabled; pass --allow-env to enable".into(),
         ));
     }
