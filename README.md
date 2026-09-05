@@ -178,6 +178,67 @@ and writes outputs, nothing more. To embed it in a build graph:
 - If you post-process the outputs (formatter, linter), compare before copying
   them into place — the content-aware skip only covers reweave's own writes.
 
+#### Example: Meson + a small wrapper script
+
+Distilled from a real consumer (the rompla project's `scripts/reweave_gen.py`).
+The wrapper feeds only main documents to reweave, syncs changed files, and
+emits the stamp/depfile ninja needs:
+
+```python
+#!/usr/bin/env python3
+"""reweave_gen.py <root> <stamp> <depfile> <reweave_bin>"""
+import re, shutil, subprocess, sys, tempfile
+from pathlib import Path
+
+root, stamp, depfile, reweave_bin = sys.argv[1:5]
+root = Path(root).resolve()
+all_md = sorted((root / "src").rglob("*.md"))
+
+# Main documents = all .md minus %include'd fragments.
+included = set()
+for md in all_md:
+    included.update(re.findall(r"%include\(([^)]+\.md)\)", md.read_text()))
+mains = [str(p.relative_to(root)) for p in all_md
+         if str(p.relative_to(root)) not in included]
+
+with tempfile.TemporaryDirectory() as tmp:
+    subprocess.run([reweave_bin, *mains, "-I", str(root), "-o", tmp],
+                   cwd=root, check=True)
+    for gen in Path(tmp).rglob("*"):
+        if not gen.is_file():
+            continue
+        dest = root / "src" / gen.relative_to(tmp)
+        if not dest.exists() or dest.read_bytes() != gen.read_bytes():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(gen, dest)
+
+Path(stamp).write_text("\n")
+Path(depfile).write_text(f"{stamp}: {' '.join(map(str, all_md))}\n")
+```
+
+And the Meson target:
+
+```meson
+reweave_exe = find_program('reweave', required : true)
+
+gen_src = custom_target('gen-src',
+  output : ['gen_src.stamp'],
+  depfile : 'gen_src.d',
+  command : [
+    find_program('python3'),
+    meson.current_source_dir() / 'scripts' / 'reweave_gen.py',
+    meson.current_source_dir(),
+    '@OUTPUT0@', '@DEPFILE@',
+    reweave_exe,
+  ],
+  build_by_default : true,
+)
+```
+
+Add `gen_src` to the `depends` of any target that consumes the generated
+files. If you format the outputs (e.g. `nph` for Nim), run the formatter in
+the wrapper between tangling and the change-only copy, as rompla does.
+
 ### Macro strictness gotchas
 
 - Every chunk reference must be defined; reweave does not silently expand
