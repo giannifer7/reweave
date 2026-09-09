@@ -128,6 +128,10 @@ Common options:
 --close-delim TEXT         Noweb close delimiter, default: ]>
 --chunk-end TEXT           Chunk end marker, default: @
 --comment-marker TEXT      Accepted chunk comment marker, repeatable
+--formatter CMD            Format each output via `CMD <file>` before writing,
+                           repeatable; runs before change detection
+--stamp FILE               Write a stamp file (ninja target) after a run
+--depfile FILE             Write a Makefile-style depfile (inputs + includes)
 --recursion-limit N        Macro and chunk expansion recursion limit
 ```
 
@@ -156,44 +160,41 @@ argument order. It cannot be combined with `--no-macro`.
 
 ### Main documents and fragments
 
-A document that `%include`s another is a *main* document; the included
-file is a *fragment*. Feed reweave **main documents only**: `--dir` tangles every discovered
-file, and a fragment processed standalone will fail — either with
-`file chunk ... is already defined` (when the main document is in the same run) or
-with `referenced chunk ... is undefined` (when it is not). When using `--dir`,
-keep fragments in a separate directory that is not scanned, or list main
-files explicitly as inputs.
+A document that `%include`s another is a *main* document; the included file is
+a *fragment*. Feed reweave the whole source set — fragments are handled
+natively: reweave discovers includes through its own macro evaluator
+(macro-computed include arguments work), splices fragments into the including
+documents, and tangles only the main documents. A fragment is never expanded
+or tangled standalone, so there are no duplicate-`@file` errors and no
+undefined-macro failures from out-of-scope expansion.
 
 ### Build system integration
 
-Reweave intentionally has no depfile, stamp, or watch mode — it tangles inputs
-and writes outputs, nothing more. To embed it in a build graph:
+Reweave tangles inputs and writes outputs — no watch mode, no persistent
+state. Everything a build graph needs is built in:
 
-- Run it per build step and let the build tool track the *input* `.md` files as
-  dependencies (including fragments — reweave does not report which files a
-  main document pulled in, so depend on the whole source set).
+- `--stamp FILE` writes a stamp file after a successful run (the ninja
+  target); it lists the outputs that were actually written.
+- `--depfile FILE` writes a Makefile-style depfile covering every file that
+  can influence the outputs: all inputs plus every resolved include.
 - Writes are content-aware: outputs whose content is unchanged keep their
   mtime, so downstream compile steps are not re-triggered by a no-op
   regeneration.
-- If you post-process the outputs (formatter, linter), compare before copying
-  them into place — the content-aware skip only covers reweave's own writes.
+- `--formatter CMD` (repeatable) runs `CMD <file>` on each output *before*
+  the content-aware comparison, so a formatter (e.g. `nph`) participates in
+  change detection instead of defeating it.
 
-#### Example: Meson + a small wrapper script
+#### Example: Meson
 
 [`examples/build-integration`](examples/build-integration/) is a complete,
-runnable setup distilled from a real consumer (the rompla project's
-`scripts/reweave_gen.py`): a Meson `custom_target` driving a small Python
-wrapper that feeds only main documents to reweave, syncs changed files into
-place, and emits the stamp/depfile ninja needs:
+runnable setup distilled from the rompla project: one Meson `custom_target`
+invoking reweave with `--stamp`/`--depfile` — no wrapper scripts:
 
 ```sh
 cd examples/build-integration
 meson setup build
 ninja -C build
 ```
-
-If you format the outputs (e.g. `nph` for Nim), run the formatter in the
-wrapper between tangling and the change-only copy, as rompla does.
 
 ### Macro strictness gotchas
 

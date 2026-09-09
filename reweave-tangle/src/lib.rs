@@ -41,6 +41,12 @@ pub enum TangleError {
     },
     #[error("unsafe @file path '{path}'")]
     UnsafePath { path: String },
+    #[error("formatter '{command}' failed with status {status} on '{path}'")]
+    FormatterFailed {
+        command: String,
+        path: String,
+        status: String,
+    },
     #[error("I/O error: {0}")]
     Io(String),
 }
@@ -165,6 +171,11 @@ pub struct TangleConfig {
     pub comment_markers: Vec<String>,
     pub strict_undefined: bool,
     pub recursion_limit: usize,
+    /// External commands applied to every output before writing, in order.
+    /// Each is invoked as `CMD <file>` and may rewrite the file in place
+    /// (e.g. `nph`). Runs before the content-aware comparison, so a
+    /// formatter does not defeat change detection.
+    pub formatters: Vec<String>,
 }
 
 impl Default for TangleConfig {
@@ -176,6 +187,7 @@ impl Default for TangleConfig {
             comment_markers: vec!["//".to_string(), "#".to_string()],
             strict_undefined: true,
             recursion_limit: 100,
+            formatters: Vec::new(),
         }
     }
 }
@@ -188,6 +200,7 @@ pub struct Tangle {
     file_names: Vec<String>,
     strict_undefined: bool,
     recursion_limit: usize,
+    formatters: Vec<String>,
     parse_errors: Vec<TangleError>,
 }
 
@@ -205,6 +218,7 @@ impl Tangle {
             file_names: Vec::new(),
             strict_undefined: config.strict_undefined,
             recursion_limit: config.recursion_limit,
+            formatters: config.formatters,
             parse_errors: Vec::new(),
         }
     }
@@ -255,6 +269,24 @@ impl Tangle {
             let mut content = Vec::new();
             for line in self.expand(name)? {
                 content.extend_from_slice(line.as_bytes());
+            }
+            if !self.formatters.is_empty() {
+                ensure_parent_dir(&out_path)?;
+                let tmp_path = out_path.with_extension("reweave-fmt");
+                fs::write(&tmp_path, &content)?;
+                for fmt in &self.formatters {
+                    let status = std::process::Command::new(fmt).arg(&tmp_path).status()?;
+                    if !status.success() {
+                        let _ = fs::remove_file(&tmp_path);
+                        return Err(TangleError::FormatterFailed {
+                            command: fmt.clone(),
+                            path: out_path.display().to_string(),
+                            status: status.to_string(),
+                        });
+                    }
+                }
+                content = fs::read(&tmp_path)?;
+                fs::remove_file(&tmp_path)?;
             }
             if fs::read(&out_path).is_ok_and(|existing| existing == content) {
                 continue;

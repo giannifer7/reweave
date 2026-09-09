@@ -3,6 +3,7 @@ use super::*;
 impl Evaluator {
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;
+        self.state.included_paths.push(path.clone());
 
         if self.state.open_includes.contains(&path) {
             return Err(EvalError::CircularInclude(None, path.display().to_string()));
@@ -18,5 +19,10 @@ impl Evaluator {
         // so that a reused evaluator does not permanently block future includes.
         self.state.open_includes.remove(&path);
         result
+    }
+
+    /// Return (and clear) the include paths resolved so far.
+    pub fn drain_included_paths(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.state.included_paths)
     }
 }

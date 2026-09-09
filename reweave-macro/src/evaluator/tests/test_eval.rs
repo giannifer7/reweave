@@ -121,3 +121,13 @@ fn test_eval_macro_call_with_dynamic_macro_name() {
 
     assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
 }
+
+#[test]
+fn test_comment_nodes_evaluate_to_nothing() {
+    let result = process_string_defaults("before %// line comment\n%-- another\n%# third\n%/* block comment %*/ after")
+        .unwrap();
+    let text = String::from_utf8(result).unwrap();
+    assert!(text.starts_with("before"));
+    assert!(text.ends_with("after"));
+    assert!(!text.contains("comment"));
+}

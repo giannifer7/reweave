@@ -1322,6 +1322,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "miette",
+ "regex",
  "reweave-core",
  "reweave-macro",
  "reweave-tangle",

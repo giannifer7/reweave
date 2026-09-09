@@ -106,6 +106,9 @@ pub struct EvaluatorState {
     pub call_depth: usize,
     /// Diagnostic warnings collected during evaluation (non-fatal).
     pub warnings: Vec<String>,
+    /// Every path resolved by `%include`/`%import`, in resolution order.
+    /// Lets callers learn the include graph without re-parsing inputs.
+    pub included_paths: Vec<PathBuf>,
 }
 
 impl EvaluatorState {
@@ -118,6 +121,7 @@ impl EvaluatorState {
             source_manager: SourceManager::new(),
             call_depth: 0,
             warnings: Vec::new(),
+            included_paths: Vec::new(),
         }
     }
 
