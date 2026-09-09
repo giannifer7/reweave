@@ -98,6 +98,14 @@ pub(in crate::evaluator::builtins) fn builtin_eval(
     if macro_name.is_empty() {
         return Ok("".into());
     }
+    // %include/%import must stay statically visible in the source; pulling
+    // files in through a computed call would hide them from review and from
+    // include-graph scheduling.
+    if matches!(macro_name, "include" | "import") {
+        return Err(EvalError::InvalidUsage(None, format!(
+            "eval: '{macro_name}' cannot be called indirectly; call %{macro_name}(...) directly"
+        )));
+    }
     let rest = if parts.len() > 1 {
         parts[1..].to_vec()
     } else {

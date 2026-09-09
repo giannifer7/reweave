@@ -1,3 +1,4 @@
+use crate::evaluator::EvalError;
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -130,4 +131,52 @@ fn test_comment_nodes_evaluate_to_nothing() {
     assert!(text.starts_with("before"));
     assert!(text.ends_with("after"));
     assert!(!text.contains("comment"));
+}
+
+#[test]
+fn test_eval_forbids_indirect_include() {
+    let err = process_string_defaults("%eval(include, whatever.md)").unwrap_err();
+    match err {
+        EvalError::InvalidUsage(_, msg) => {
+            assert!(msg.contains("cannot be called indirectly"), "got: {msg}");
+        }
+        other => panic!("expected InvalidUsage, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_eval_forbids_indirect_import() {
+    let err = process_string_defaults("%eval(import, whatever.md)").unwrap_err();
+    assert!(matches!(err, EvalError::InvalidUsage(_, _)));
+}
+
+#[test]
+fn test_eval_forbids_include_through_computed_name() {
+    // The obfuscation vector: the builtin name is hidden behind a variable.
+    let err = process_string_defaults("%set(which, include)\n%eval(%(which), whatever.md)")
+        .unwrap_err();
+    match err {
+        EvalError::InvalidUsage(_, msg) => {
+            assert!(msg.contains("cannot be called indirectly"), "got: {msg}");
+        }
+        other => panic!("expected InvalidUsage, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_eval_forbids_include_inside_macro_body() {
+    let err = process_string_defaults(
+        "%def(sneaky, %{%eval(include, whatever.md)%})\n%sneaky()",
+    )
+    .unwrap_err();
+    assert!(matches!(err, EvalError::InvalidUsage(_, _)));
+}
+
+#[test]
+fn test_eval_still_allows_other_builtins_dynamically() {
+    let result = process_string_defaults("%eval(capitalize, hello)").unwrap();
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello");
+
+    let result = process_string_defaults("%set(which, capitalize)\n%eval(%(which), hello)").unwrap();
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello");
 }

@@ -475,6 +475,10 @@ an existing macro. Named overrides freeze free variables for the alias:
 %eval(%(which), Ada)
 ```
 
+`%include` and `%import` cannot be called indirectly through `%eval` — file
+inclusion must stay statically visible in the source. Calling
+`%eval(include, ...)` (directly or through a computed name) is an error.
+
 ### Export
 
 `%export(name)` copies a variable or macro from an inner macro scope to the
