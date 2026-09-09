@@ -182,7 +182,10 @@ state. Everything a build graph needs is built in:
   regeneration.
 - `--formatter CMD` (repeatable) runs `CMD <file>` on each output *before*
   the content-aware comparison, so a formatter (e.g. `nph`) participates in
-  change detection instead of defeating it.
+  change detection instead of defeating it. A small cache under
+  `<out>/.reweave/` (gitignore it) records raw expansions and output hashes,
+  so unchanged outputs skip the formatter entirely — and a hand-edited
+  output is detected by its hash and regenerated, never kept stale.
 
 #### Example: Meson
 

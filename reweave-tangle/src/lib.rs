@@ -260,42 +260,111 @@ impl Tangle {
     /// the expanded output are left untouched (and their mtimes preserved),
     /// so downstream build tools are not needlessly re-triggered.
     /// Returns the paths of the files that were actually written.
+    ///
+    /// With formatters configured, a small cache under `out_dir/.reweave/`
+    /// records the raw (pre-format) expansion and a hash of the written
+    /// output. On the next run, an output is skipped *without running the
+    /// formatter* when both the raw expansion is unchanged and the output
+    /// file is untouched since the last write. The cache is an optimization
+    /// only: it is never consulted for correctness, and deleting it costs
+    /// one slower run.
     pub fn write_files(&self, out_dir: &Path) -> Result<Vec<PathBuf>, TangleError> {
         let mut written = Vec::new();
         for name in self.file_chunks() {
             let rel = name.strip_prefix("@file ").unwrap_or(name).trim();
             path_is_safe(rel)?;
             let out_path = out_dir.join(rel);
-            let mut content = Vec::new();
+            let mut raw = Vec::new();
             for line in self.expand(name)? {
-                content.extend_from_slice(line.as_bytes());
+                raw.extend_from_slice(line.as_bytes());
             }
-            if !self.formatters.is_empty() {
-                ensure_parent_dir(&out_path)?;
-                let tmp_path = out_path.with_extension("reweave-fmt");
-                fs::write(&tmp_path, &content)?;
-                for fmt in &self.formatters {
-                    let status = std::process::Command::new(fmt).arg(&tmp_path).status()?;
-                    if !status.success() {
-                        let _ = fs::remove_file(&tmp_path);
-                        return Err(TangleError::FormatterFailed {
-                            command: fmt.clone(),
-                            path: out_path.display().to_string(),
-                            status: status.to_string(),
-                        });
-                    }
-                }
-                content = fs::read(&tmp_path)?;
-                fs::remove_file(&tmp_path)?;
-            }
-            if fs::read(&out_path).is_ok_and(|existing| existing == content) {
+
+            // Cheap pre-check: identical to the raw expansion (covers the
+            // no-formatter case and identity formatters).
+            if fs::read(&out_path).is_ok_and(|existing| existing == raw) {
                 continue;
             }
+
+            if !self.formatters.is_empty() {
+                // Verified cache hit: raw expansion unchanged AND output file
+                // untouched — the formatter does not need to run at all.
+                if self.cache_hit(out_dir, rel, &out_path, &raw) {
+                    continue;
+                }
+                let formatted = self.run_formatters(&out_path, raw.clone())?;
+                if fs::read(&out_path).is_ok_and(|existing| existing == formatted) {
+                    // Output already correct; only the cache needed updating.
+                    self.cache_store(out_dir, rel, &out_path, &raw)?;
+                    continue;
+                }
+                ensure_parent_dir(&out_path)?;
+                fs::write(&out_path, &formatted)?;
+                self.cache_store(out_dir, rel, &out_path, &raw)?;
+                written.push(out_path);
+                continue;
+            }
+
             ensure_parent_dir(&out_path)?;
-            fs::write(&out_path, &content)?;
+            fs::write(&out_path, &raw)?;
             written.push(out_path);
         }
         Ok(written)
+    }
+
+    /// Run the configured formatters on `content` via a temp file next to
+    /// `out_path`, returning the formatted content.
+    fn run_formatters(&self, out_path: &Path, content: Vec<u8>) -> Result<Vec<u8>, TangleError> {
+        ensure_parent_dir(out_path)?;
+        let tmp_path = out_path.with_extension("reweave-fmt");
+        fs::write(&tmp_path, &content)?;
+        for fmt in &self.formatters {
+            let status = std::process::Command::new(fmt).arg(&tmp_path).status()?;
+            if !status.success() {
+                let _ = fs::remove_file(&tmp_path);
+                return Err(TangleError::FormatterFailed {
+                    command: fmt.clone(),
+                    path: out_path.display().to_string(),
+                    status: status.to_string(),
+                });
+            }
+        }
+        let formatted = fs::read(&tmp_path)?;
+        fs::remove_file(&tmp_path)?;
+        Ok(formatted)
+    }
+
+    /// Cache lookup: true when the cached raw expansion equals `raw` and the
+    /// output file's content still hashes to the value recorded at write time.
+    fn cache_hit(&self, out_dir: &Path, rel: &str, out_path: &Path, raw: &[u8]) -> bool {
+        let Ok(cached_raw) = fs::read(raw_cache_path(out_dir, rel)) else {
+            return false;
+        };
+        if cached_raw != raw {
+            return false;
+        }
+        let Ok(recorded_hash) = fs::read_to_string(hash_cache_path(out_dir, rel)) else {
+            return false;
+        };
+        let Ok(dest) = fs::read(out_path) else {
+            return false;
+        };
+        recorded_hash.trim() == fnv1a_hex(&dest)
+    }
+
+    /// Record the raw expansion and the hash of the written output.
+    fn cache_store(
+        &self,
+        out_dir: &Path,
+        rel: &str,
+        out_path: &Path,
+        raw: &[u8],
+    ) -> Result<(), TangleError> {
+        let raw_path = raw_cache_path(out_dir, rel);
+        ensure_parent_dir(&raw_path)?;
+        fs::write(&raw_path, raw)?;
+        let dest = fs::read(out_path)?;
+        fs::write(hash_cache_path(out_dir, rel), fnv1a_hex(&dest))?;
+        Ok(())
     }
 
     fn add_file_name(&mut self, fname: &str) -> usize {
@@ -553,6 +622,26 @@ fn ensure_parent_dir(path: &Path) -> Result<(), TangleError> {
         fs::create_dir_all(parent)?;
     }
     Ok(())
+}
+
+/// Cache file holding the raw (pre-format) expansion of an output.
+fn raw_cache_path(out_dir: &Path, rel: &str) -> PathBuf {
+    out_dir.join(".reweave").join(format!("{rel}.raw"))
+}
+
+/// Cache file holding the FNV-1a hash of the output at write time.
+fn hash_cache_path(out_dir: &Path, rel: &str) -> PathBuf {
+    out_dir.join(".reweave").join(format!("{rel}.hash"))
+}
+
+/// FNV-1a 64-bit, hex-encoded — tamper detection for the formatter cache.
+fn fnv1a_hex(bytes: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 fn path_is_safe(path: &str) -> Result<(), TangleError> {
@@ -857,5 +946,133 @@ println!("hi");
     fn keeps_content_lines_shorter_than_definition_indent() {
         let t = read("```text\n    # <[@file out.txt]>=\nx\n# @\n```");
         assert_eq!(t.expand("@file out.txt").unwrap().join(""), "x\n");
+    }
+}
+
+#[cfg(test)]
+mod formatter_cache_tests {
+    use super::*;
+
+    fn counting_formatter(dir: &Path, script_name: &str, counter: &Path) -> PathBuf {
+        let script = dir.join(script_name);
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho x >> {}\nprintf 'formatted\\n' >> \"$1\"\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
+    fn count(counter: &Path) -> usize {
+        fs::read_to_string(counter)
+            .map(|c| c.lines().count())
+            .unwrap_or(0)
+    }
+
+    fn tangle_with_formatter(fmt: &Path) -> Tangle {
+        let mut t = Tangle::new(TangleConfig {
+            formatters: vec![fmt.to_string_lossy().into_owned()],
+            ..TangleConfig::default()
+        });
+        t.read("```text\n# <[@file out.txt]>=\nhello\n# @\n```", "test.md");
+        t
+    }
+
+    #[test]
+    fn cache_skips_formatter_when_nothing_changed() {
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = counting_formatter(temp.path(), "fmt.sh", &counter);
+        let t = tangle_with_formatter(&fmt);
+
+        let first = t.write_files(temp.path()).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(count(&counter), 1);
+
+        let second = t.write_files(temp.path()).unwrap();
+        assert!(second.is_empty());
+        assert_eq!(count(&counter), 1, "formatter ran despite cache");
+
+        // The cache files exist and sit in a private dir next to the outputs.
+        assert!(temp.path().join(".reweave/out.txt.raw").exists());
+        assert!(temp.path().join(".reweave/out.txt.hash").exists());
+    }
+
+    #[test]
+    fn cache_detects_tampered_output_and_self_heals() {
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = counting_formatter(temp.path(), "fmt.sh", &counter);
+        let t = tangle_with_formatter(&fmt);
+        let out = temp.path().join("out.txt");
+
+        t.write_files(temp.path()).unwrap();
+        assert_eq!(fs::read_to_string(&out).unwrap(), "hello\nformatted\n");
+
+        // Hand-edit the generated file: the dest hash no longer matches.
+        fs::write(&out, "hand edited\n").unwrap();
+
+        let written = t.write_files(temp.path()).unwrap();
+        assert_eq!(written.len(), 1);
+        assert_eq!(count(&counter), 2, "formatter did not rerun after tamper");
+        assert_eq!(fs::read_to_string(&out).unwrap(), "hello\nformatted\n");
+    }
+
+    #[test]
+    fn cache_updates_after_source_change() {
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = counting_formatter(temp.path(), "fmt.sh", &counter);
+        let out = temp.path().join("out.txt");
+
+        tangle_with_formatter(&fmt).write_files(temp.path()).unwrap();
+
+        let mut changed = Tangle::new(TangleConfig {
+            formatters: vec![fmt.to_string_lossy().into_owned()],
+            ..TangleConfig::default()
+        });
+        changed.read("```text\n# <[@file out.txt]>=\nchanged\n# @\n```", "test.md");
+        changed.write_files(temp.path()).unwrap();
+        assert_eq!(fs::read_to_string(&out).unwrap(), "changed\nformatted\n");
+        assert_eq!(count(&counter), 2);
+
+        // Third run with the new content: cache hit, no formatter.
+        let third = changed.write_files(temp.path()).unwrap();
+        assert!(third.is_empty());
+        assert_eq!(count(&counter), 2);
+    }
+
+    #[test]
+    fn identity_formatter_uses_raw_precheck() {
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        // Formatter that does not modify the file, only counts invocations.
+        let script = temp.path().join("identity.sh");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\necho x >> {}\n", counter.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let t = tangle_with_formatter(&script);
+
+        t.write_files(temp.path()).unwrap();
+        assert_eq!(count(&counter), 1);
+
+        let second = t.write_files(temp.path()).unwrap();
+        assert!(second.is_empty());
+        assert_eq!(count(&counter), 1, "identity formatter reran despite raw match");
     }
 }
