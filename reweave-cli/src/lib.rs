@@ -102,8 +102,9 @@ struct Args {
     #[arg(long = "comment-marker", default_values_t = ["//".to_string(), "#".to_string()])]
     comment_markers: Vec<String>,
 
-    /// External formatter applied to each output before writing, invoked as
-    /// `CMD <file>`. Repeatable; runs before the change-detection comparison.
+    /// External formatter applied before writing, invoked once per run as
+    /// `CMD [ARGS...] <file>...` across every output needing it (shell-word
+    /// split). Repeatable; runs before the change-detection comparison.
     #[arg(long = "formatter")]
     formatters: Vec<String>,
 
@@ -845,6 +846,29 @@ mod integration_tests {
             Error::Tangle { source } => assert!(
                 source.to_string().contains("fail.sh"),
                 "expected FormatterFailed naming the script, got: {source}"
+            ),
+            other => panic!("expected Tangle error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unparsable_formatter_command_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = write_file(
+            tmp.path(),
+            "main.md",
+            "```text\n# <[@file out.txt]>=\nhello\n# @\n```",
+        );
+        // An unterminated quote: not splittable into shell words, exercising
+        // the FormatterCommandInvalid path (distinct from a formatter that
+        // runs but fails, above).
+        let mut args = args_for(tmp.path(), vec![input]);
+        args.formatters = vec!["echo 'unterminated".to_string()];
+
+        match run(args).unwrap_err() {
+            Error::Tangle { source } => assert!(
+                source.to_string().contains("could not be split"),
+                "expected FormatterCommandInvalid, got: {source}"
             ),
             other => panic!("expected Tangle error, got {other:?}"),
         }

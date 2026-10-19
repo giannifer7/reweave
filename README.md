@@ -128,8 +128,12 @@ Common options:
 --close-delim TEXT         Noweb close delimiter, default: ]>
 --chunk-end TEXT           Chunk end marker, default: @
 --comment-marker TEXT      Accepted chunk comment marker, repeatable
---formatter CMD            Format each output via `CMD <file>` before writing,
-                           repeatable; runs before change detection
+--formatter CMD            Format every output needing it via `CMD [ARGS...]
+                           <file>...` before writing — one run across the
+                           whole batch, not one per file (shell-word split,
+                           so arguments are allowed, e.g. `--formatter
+                           'clojure -M:cljfmt fix'`); repeatable; runs before
+                           change detection
 --stamp FILE               Write a stamp file (ninja target) after a run
 --depfile FILE             Write a Makefile-style depfile (inputs + includes)
 --recursion-limit N        Macro and chunk expansion recursion limit
@@ -180,11 +184,17 @@ state. Everything a build graph needs is built in:
 - Writes are content-aware: outputs whose content is unchanged keep their
   mtime, so downstream compile steps are not re-triggered by a no-op
   regeneration.
-- `--formatter CMD` (repeatable) runs `CMD <file>` on each output *before*
-  the content-aware comparison, so a formatter (e.g. `nph`) participates in
-  change detection instead of defeating it. A small cache under
+- `--formatter CMD` (repeatable) runs `CMD [ARGS...] <file>...` *before* the
+  content-aware comparison, so a formatter (e.g. `nph`, or `clojure -M:cljfmt
+  fix`) participates in change detection instead of defeating it. `CMD` is
+  split shell-style, and every output that actually needs (re)formatting this
+  run has its path appended — one process per configured formatter per
+  `write_files` call, not one per file: the full set of `@file` outputs isn't
+  known until every chunk has been scanned, and a JVM-booting formatter costs
+  the same whether it is handed one path or a hundred. A small cache under
   `<out>/.reweave/` (gitignore it) records raw expansions and output hashes,
-  so unchanged outputs skip the formatter entirely — and a hand-edited
+  so unchanged outputs skip the
+  formatter entirely — and a hand-edited
   output is detected by its hash and regenerated, never kept stale.
 
 #### Example: Meson

@@ -21,6 +21,7 @@ monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.23" }
 monty-types = { git = "https://github.com/pydantic/monty", tag = "v0.0.23" }
 pretty_assertions = "1.4"
 regex = "1.13"
+shlex = "2"
 tempfile = "3.27"
 thiserror = "2.0"
 walkdir = "2"

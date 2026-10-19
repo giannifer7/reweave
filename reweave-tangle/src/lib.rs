@@ -47,6 +47,8 @@ pub enum TangleError {
         path: String,
         status: String,
     },
+    #[error("formatter command '{command}' could not be split into words (check quoting)")]
+    FormatterCommandInvalid { command: String },
     #[error("I/O error: {0}")]
     Io(String),
 }
@@ -268,12 +270,22 @@ impl Tangle {
     /// file is untouched since the last write. The cache is an optimization
     /// only: it is never consulted for correctness, and deleting it costs
     /// one slower run.
+    ///
+    /// A single tangle can write outputs anywhere `@file` chunks name, a set
+    /// not known until every chunk has been scanned — so each configured
+    /// formatter runs *once per `write_files` call*, across every output that
+    /// actually needs (re)formatting, rather than once per file: a JVM-booting
+    /// formatter like `clojure -M:cljfmt fix` costs the same whether it is
+    /// handed one path or a hundred, and a hundred separate process spawns for
+    /// a hundred tangled files would not scale.
     pub fn write_files(&self, out_dir: &Path) -> Result<Vec<PathBuf>, TangleError> {
         let mut written = Vec::new();
+        let mut to_format: Vec<(PathBuf, String, Vec<u8>)> = Vec::new();
+
         for name in self.file_chunks() {
-            let rel = name.strip_prefix("@file ").unwrap_or(name).trim();
-            path_is_safe(rel)?;
-            let out_path = out_dir.join(rel);
+            let rel = name.strip_prefix("@file ").unwrap_or(name).trim().to_string();
+            path_is_safe(&rel)?;
+            let out_path = out_dir.join(&rel);
             let mut raw = Vec::new();
             for line in self.expand(name)? {
                 raw.extend_from_slice(line.as_bytes());
@@ -285,52 +297,96 @@ impl Tangle {
                 continue;
             }
 
-            if !self.formatters.is_empty() {
-                // Verified cache hit: raw expansion unchanged AND output file
-                // untouched — the formatter does not need to run at all.
-                if self.cache_hit(out_dir, rel, &out_path, &raw) {
-                    continue;
-                }
-                let formatted = self.run_formatters(&out_path, raw.clone())?;
-                if fs::read(&out_path).is_ok_and(|existing| existing == formatted) {
-                    // Output already correct; only the cache needed updating.
-                    self.cache_store(out_dir, rel, &out_path, &raw)?;
-                    continue;
-                }
+            if self.formatters.is_empty() {
                 ensure_parent_dir(&out_path)?;
-                fs::write(&out_path, &formatted)?;
-                self.cache_store(out_dir, rel, &out_path, &raw)?;
+                fs::write(&out_path, &raw)?;
                 written.push(out_path);
                 continue;
             }
 
-            ensure_parent_dir(&out_path)?;
-            fs::write(&out_path, &raw)?;
-            written.push(out_path);
+            // Verified cache hit: raw expansion unchanged AND output file
+            // untouched — this output does not need (re)formatting at all.
+            if self.cache_hit(out_dir, &rel, &out_path, &raw) {
+                continue;
+            }
+            to_format.push((out_path, rel, raw));
         }
+
+        if to_format.is_empty() {
+            return Ok(written);
+        }
+
+        for (out_path, _, raw) in &to_format {
+            ensure_parent_dir(out_path)?;
+            fs::write(tmp_format_path(out_path), raw)?;
+        }
+        let tmp_paths: Vec<PathBuf> = to_format.iter().map(|(p, _, _)| tmp_format_path(p)).collect();
+        let out_paths: Vec<PathBuf> = to_format.iter().map(|(p, _, _)| p.clone()).collect();
+        if let Err(err) = self.run_formatters_batch(&tmp_paths, &out_paths) {
+            for p in &tmp_paths {
+                let _ = fs::remove_file(p);
+            }
+            return Err(err);
+        }
+
+        for (out_path, rel, raw) in &to_format {
+            let tmp_path = tmp_format_path(out_path);
+            let formatted = fs::read(&tmp_path)?;
+            fs::remove_file(&tmp_path)?;
+            if fs::read(out_path).is_ok_and(|existing| existing == formatted) {
+                // Output already correct; only the cache needed updating.
+                self.cache_store(out_dir, rel, out_path, raw)?;
+                continue;
+            }
+            fs::write(out_path, &formatted)?;
+            self.cache_store(out_dir, rel, out_path, raw)?;
+            written.push(out_path.clone());
+        }
+
         Ok(written)
     }
 
-    /// Run the configured formatters on `content` via a temp file next to
-    /// `out_path`, returning the formatted content.
-    fn run_formatters(&self, out_path: &Path, content: Vec<u8>) -> Result<Vec<u8>, TangleError> {
-        ensure_parent_dir(out_path)?;
-        let tmp_path = out_path.with_extension("reweave-fmt");
-        fs::write(&tmp_path, &content)?;
+    /// Run every configured formatter once across `tmp_paths` (parallel to
+    /// `out_paths`, used only to name the batch in errors).
+    ///
+    /// Each formatter string is split shell-style (so `clojure -M:cljfmt fix`
+    /// works directly, not just a single bare executable), and the batch's
+    /// temp file paths are appended as the final arguments: `CMD [ARGS...]
+    /// <file>...`. Formatters run in sequence; each sees the previous
+    /// formatter's output, same as a single-file batch would.
+    fn run_formatters_batch(
+        &self,
+        tmp_paths: &[PathBuf],
+        out_paths: &[PathBuf],
+    ) -> Result<(), TangleError> {
         for fmt in &self.formatters {
-            let status = std::process::Command::new(fmt).arg(&tmp_path).status()?;
+            let mut words = match shlex::split(fmt) {
+                Some(words) if !words.is_empty() => words,
+                _ => {
+                    return Err(TangleError::FormatterCommandInvalid {
+                        command: fmt.clone(),
+                    });
+                }
+            };
+            let program = words.remove(0);
+            let status = std::process::Command::new(program)
+                .args(&words)
+                .args(tmp_paths)
+                .status()?;
             if !status.success() {
-                let _ = fs::remove_file(&tmp_path);
+                let paths = out_paths
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(TangleError::FormatterFailed {
                     command: fmt.clone(),
-                    path: out_path.display().to_string(),
+                    path: paths,
                     status: status.to_string(),
                 });
             }
         }
-        let formatted = fs::read(&tmp_path)?;
-        fs::remove_file(&tmp_path)?;
-        Ok(formatted)
+        Ok(())
     }
 
     /// Cache lookup: true when the cached raw expansion equals `raw` and the
@@ -622,6 +678,13 @@ fn ensure_parent_dir(path: &Path) -> Result<(), TangleError> {
         fs::create_dir_all(parent)?;
     }
     Ok(())
+}
+
+/// Temp file a formatter batch writes `out_path`'s raw content to and is
+/// invoked against, next to the real output (so cross-filesystem renames
+/// are never a concern) and distinguished by extension alone.
+fn tmp_format_path(out_path: &Path) -> PathBuf {
+    out_path.with_extension("reweave-fmt")
 }
 
 /// Cache file holding the raw (pre-format) expansion of an output.
@@ -986,6 +1049,28 @@ mod formatter_cache_tests {
         t
     }
 
+    /// A formatter that counts its own invocations (one line per run, regardless
+    /// of how many file arguments it was given) and appends a marker to *every*
+    /// path it receives — proving both that one run handles many files, and
+    /// that each file was actually passed through, not just the first.
+    fn batch_counting_formatter(dir: &Path, script_name: &str, counter: &Path) -> PathBuf {
+        let script = dir.join(script_name);
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho x >> {}\nfor f in \"$@\"; do printf 'formatted\\n' >> \"$f\"; done\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
     #[test]
     fn cache_skips_formatter_when_nothing_changed() {
         let temp = tempfile::tempdir().unwrap();
@@ -1074,5 +1159,127 @@ mod formatter_cache_tests {
         let second = t.write_files(temp.path()).unwrap();
         assert!(second.is_empty());
         assert_eq!(count(&counter), 1, "identity formatter reran despite raw match");
+    }
+
+    #[test]
+    fn formatter_command_carries_its_own_arguments() {
+        // The formatter string is split shell-style: everything but the last word is the
+        // program and its own arguments, and the temp file path is appended after them.
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("fmt-with-flag.sh");
+        fs::write(
+            &script,
+            "#!/bin/sh\n[ \"$1\" = \"--verbose\" ] || exit 2\nprintf 'formatted\\n' >> \"$2\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut t = Tangle::new(TangleConfig {
+            formatters: vec![format!("{} --verbose", script.display())],
+            ..TangleConfig::default()
+        });
+        t.read("```text\n# <[@file out.txt]>=\nhello\n# @\n```", "test.md");
+
+        t.write_files(temp.path()).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(temp.path().join("out.txt")).unwrap(),
+            "hello\nformatted\n"
+        );
+    }
+
+    #[test]
+    fn unparsable_formatter_command_is_reported() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut t = Tangle::new(TangleConfig {
+            // An unterminated single quote: not splittable into shell words.
+            formatters: vec!["echo 'unterminated".to_string()],
+            ..TangleConfig::default()
+        });
+        t.read("```text\n# <[@file out.txt]>=\nhello\n# @\n```", "test.md");
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::FormatterCommandInvalid { .. }));
+        assert!(err.to_string().contains("echo 'unterminated"));
+    }
+
+    #[test]
+    fn blank_formatter_command_is_reported() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut t = Tangle::new(TangleConfig {
+            // Valid shell syntax, but splits to zero words: nothing to execute.
+            formatters: vec!["   ".to_string()],
+            ..TangleConfig::default()
+        });
+        t.read("```text\n# <[@file out.txt]>=\nhello\n# @\n```", "test.md");
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::FormatterCommandInvalid { .. }));
+        assert!(err.to_string().contains("could not be split"));
+    }
+
+    #[test]
+    fn one_formatter_run_handles_every_output_in_the_batch() {
+        // Reweave does not know the full set of @file outputs until every chunk
+        // has been scanned, and that set can be large: the formatter must run
+        // once per `write_files` call, not once per output file.
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = batch_counting_formatter(temp.path(), "fmt.sh", &counter);
+        let mut t = Tangle::new(TangleConfig {
+            formatters: vec![fmt.to_string_lossy().into_owned()],
+            ..TangleConfig::default()
+        });
+        t.read(
+            "```text\n# <[@file a.txt]>=\none\n# @\n# <[@file b.txt]>=\ntwo\n# @\n```",
+            "test.md",
+        );
+
+        let written = t.write_files(temp.path()).unwrap();
+
+        assert_eq!(written.len(), 2);
+        assert_eq!(count(&counter), 1, "formatter ran more than once for the batch");
+        assert_eq!(
+            fs::read_to_string(temp.path().join("a.txt")).unwrap(),
+            "one\nformatted\n"
+        );
+        assert_eq!(
+            fs::read_to_string(temp.path().join("b.txt")).unwrap(),
+            "two\nformatted\n"
+        );
+    }
+
+    #[test]
+    fn batch_formatter_failure_names_every_file_in_the_batch() {
+        let temp = tempfile::tempdir().unwrap();
+        let fmt = temp.path().join("fail.sh");
+        fs::write(&fmt, "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&fmt, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut t = Tangle::new(TangleConfig {
+            formatters: vec![fmt.to_string_lossy().into_owned()],
+            ..TangleConfig::default()
+        });
+        t.read(
+            "```text\n# <[@file a.txt]>=\none\n# @\n# <[@file b.txt]>=\ntwo\n# @\n```",
+            "test.md",
+        );
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("a.txt"), "missing a.txt in: {message}");
+        assert!(message.contains("b.txt"), "missing b.txt in: {message}");
+        // Failed batches leave no stray .reweave-fmt temp files behind.
+        assert!(!temp.path().join("a.reweave-fmt").exists());
+        assert!(!temp.path().join("b.reweave-fmt").exists());
     }
 }

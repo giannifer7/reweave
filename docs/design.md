@@ -37,7 +37,12 @@ The noweb chunk expander, with the practical behaviors:
 - `@compact`;
 - `@tight`;
 - indentation at the reference site;
-- content-aware writes (unchanged outputs keep their mtime).
+- content-aware writes (unchanged outputs keep their mtime);
+- external formatter integration (`--formatter`): run once per `write_files`
+  call across every output that needs it, not once per file — the full set
+  of `@file` outputs is not known until every chunk has been scanned, and a
+  formatter that boots its own runtime (a JVM-based one, say) costs the same
+  whether it is handed one path or a hundred.
 
 ## Removed
 
