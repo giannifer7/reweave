@@ -46,6 +46,12 @@ fn test_def_macro_basic() {
 }
 
 #[test]
+fn test_def_macro_name_allows_kebab_case() {
+    let result = process_string_defaults("%def(say-hi, name, %{Hi, %(name)!%})\n%say-hi(Alice)").unwrap();
+    assert_eq!(std::str::from_utf8(&result).unwrap(), "\nHi, Alice!");
+}
+
+#[test]
 fn test_def_macro_with_params() {
     let result = process_string_defaults(
         "%def(greet, name, message, %{Hello, %(name)! %(message)%})\n%greet(Alice, Have a nice day)",
@@ -181,14 +187,11 @@ fn test_redef_rejects_constant_name() {
 }
 
 #[test]
-fn test_param_with_hyphen_is_rejected() {
-    // Hyphens lex as Special tokens; `single_ident_param` must reject them.
-    let result = process_string_defaults("%def(foo, my-param, body)");
-    assert!(
-        matches!(result, Err(EvalError::InvalidUsage(..))),
-        "expected InvalidUsage for hyphenated param name, got {:?}",
-        result
-    );
+fn test_param_with_hyphen_is_accepted() {
+    // Hyphens are identifier-continue chars (kebab-case param names), so `my-param`
+    // lexes as one Ident token, same as any other parameter name.
+    let result = process_string_defaults("%def(greet, my-param, %(my-param)!)\n%greet(hi)").unwrap();
+    assert_eq!(std::str::from_utf8(&result).unwrap(), "\nhi!");
 }
 
 #[test]

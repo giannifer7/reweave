@@ -20,6 +20,18 @@ fn test_basic_tokens() {
 }
 
 #[test]
+fn macro_names_and_args_allow_kebab_case() {
+    assert_tokens(
+        "%scripts-clj(ns-form)",
+        &[
+            (TokenKind::Macro, "%scripts-clj("),
+            (TokenKind::Ident, "ns-form"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
 fn test_comments() {
     assert_tokens(
         "text %// line comment\nmore text",

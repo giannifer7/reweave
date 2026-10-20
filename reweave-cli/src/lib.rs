@@ -466,7 +466,7 @@ fn is_ascii_identifier(name: &str) -> bool {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
         _ => return false,
     }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[cfg(test)]
@@ -656,6 +656,12 @@ fn main() {
         let mut evaluator = Evaluator::new(EvalConfig::default());
         assert!(apply_cli_defines(&mut evaluator, &["missing_equals".to_string()]).is_err());
         assert!(apply_cli_defines(&mut evaluator, &["1bad=value".to_string()]).is_err());
+    }
+
+    #[test]
+    fn apply_cli_defines_accepts_kebab_case_names() {
+        let mut evaluator = Evaluator::new(EvalConfig::default());
+        assert!(apply_cli_defines(&mut evaluator, &["ns-form=foo".to_string()]).is_ok());
     }
 
     #[test]

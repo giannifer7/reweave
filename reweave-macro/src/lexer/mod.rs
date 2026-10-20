@@ -10,7 +10,7 @@ fn is_identifier_start(b: u8) -> bool {
 }
 
 fn is_identifier_continue(b: u8) -> bool {
-    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-')
 }
 
 fn is_whitespace(b: u8) -> bool {
