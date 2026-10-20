@@ -21,6 +21,19 @@ impl Evaluator {
         result
     }
 
+    /// Like `do_include`, but idempotent per run: a repeat `%import` of the same resolved path
+    /// is a silent no-op rather than re-parsing and re-evaluating the file (which would redefine
+    /// its macros and fail as a duplicate binding - see `imported_paths`' own doc comment).
+    pub fn do_import(&mut self, filename: &str) -> EvalResult<String> {
+        let path = self.find_file(filename)?;
+        if self.state.imported_paths.contains(&path) {
+            self.state.included_paths.push(path);
+            return Ok(String::new());
+        }
+        self.state.imported_paths.insert(path);
+        self.do_include(filename)
+    }
+
     /// Return (and clear) the include paths resolved so far.
     pub fn drain_included_paths(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.state.included_paths)

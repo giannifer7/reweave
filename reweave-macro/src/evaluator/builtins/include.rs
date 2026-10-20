@@ -18,10 +18,21 @@ pub(in crate::evaluator::builtins) fn builtin_include(
     process_include_file(eval, node)
 }
 
+fn process_import_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+    let filename = eval.evaluate(&node.parts[0])?;
+    if filename.trim().is_empty() {
+        return Ok("".into());
+    }
+    eval.do_import(&filename)
+}
+
 pub(in crate::evaluator::builtins) fn builtin_import(
     eval: &mut Evaluator,
     node: &ASTNode,
 ) -> EvalResult<String> {
-    let _ = process_include_file(eval, node)?;
+    let _ = process_import_file(eval, node)?;
     Ok("".into())
 }

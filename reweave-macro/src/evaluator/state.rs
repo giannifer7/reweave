@@ -101,6 +101,14 @@ pub struct EvaluatorState {
     pub config: EvalConfig,
     pub scope_stack: Vec<ScopeFrame>,
     pub open_includes: HashSet<PathBuf>,
+    /// Paths already pulled in by `%import`. A second `%import` of the same resolved path in
+    /// this run is a no-op: unlike `%include` (meant to paste content at each call site, however
+    /// many times it's called), `%import` only exists to bring definitions into scope, and once
+    /// a path's macros/variables are defined they are already visible for the rest of the run -
+    /// re-running the file would just redefine them and fail as a duplicate binding. This lets
+    /// more than one top-level document in the same `--dir` batch import the same shared
+    /// fragment without needing to coordinate which one "owns" the import.
+    pub imported_paths: HashSet<PathBuf>,
     pub current_file: PathBuf,
     pub source_manager: SourceManager,
     pub call_depth: usize,
@@ -117,6 +125,7 @@ impl EvaluatorState {
             config,
             scope_stack: vec![ScopeFrame::default()],
             open_includes: HashSet::new(),
+            imported_paths: HashSet::new(),
             current_file: PathBuf::from(""),
             source_manager: SourceManager::new(),
             call_depth: 0,

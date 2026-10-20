@@ -466,6 +466,11 @@ Import another file for definitions only:
 %import(macros.md)
 ```
 
+`%import` is idempotent per run: importing the same resolved path again, even from a different
+top-level document processed by the same invocation (as happens when several files under `--dir`
+share a macro fragment), is a no-op rather than redefining its macros and failing. `%include`
+stays as-is — it always re-pastes the file's output at each call site.
+
 Search paths are controlled with `-I` / `--include`.
 
 ### Aliases
