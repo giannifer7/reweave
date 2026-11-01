@@ -37,6 +37,11 @@ The noweb chunk expander, with the practical behaviors:
 - `@compact`;
 - `@tight`;
 - indentation at the reference site;
+- unreferenced-chunk detection: a chunk defined but never reachable from any
+  `@file` chunk is an error, the same strictness as the existing undefined-
+  reference check in the other direction (see README's "Strictness"), and a
+  pure property of one run's own chunk graph — no reverse mapping or
+  persistent state needed to compute it;
 - content-aware writes (unchanged outputs keep their mtime);
 - external formatter integration (`--formatter`): run once per `write_files`
   call across every output that needs it, not once per file — the full set
