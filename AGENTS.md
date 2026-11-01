@@ -91,10 +91,12 @@ file (or a new one, registered in `tests/mod.rs`).
 
 ### Dependencies
 
-- `monty` (the `%pydef` evaluator) is a git dependency pinned by tag. After any
-  `cargo update`, re-run
-  `cargo update -p get-size2 --precise 0.10.0` — newer `get-size2` breaks
-  monty's `ruff_python_ast` (see the note in the workspace `Cargo.toml`).
+- `monty` (the `%pydef` evaluator) is a git dependency pinned by tag. Past
+  `v0.0.21`, a `get-size2 >= 0.10.1` vs. monty's `ruff_python_ast` conflict
+  forced a `cargo update -p get-size2 --precise 0.10.0` re-pin after every
+  `cargo update`; monty `v0.0.23` resolved it upstream and the workaround was
+  removed (no re-pin needed as of `v0.0.23` or `1.4.0`). Re-verify with a full
+  `cargo build` after any future monty bump — do not assume this stays clean.
 - Do not add dependencies for conveniences the stdlib covers. The current set
   is deliberately small.
 

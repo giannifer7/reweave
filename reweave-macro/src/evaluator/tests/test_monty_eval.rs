@@ -109,6 +109,18 @@ fn test_monty_formats_false_and_other_objects() {
 }
 
 #[test]
+fn test_monty_evaluate_formats_int_too_large_for_i64() {
+    // 2**100 does not fit in an i64, so monty represents it as a `BigInt`;
+    // `monty_object_to_string` must fall back to `py_repr()` rather than
+    // dropping or truncating the value.
+    let eval = MontyEvaluator::new();
+    let result = eval
+        .evaluate("2 ** 100", &[], &[], &HashMap::new(), Some("huge"))
+        .unwrap();
+    assert_eq!(result, "1267650600228229401496703205376");
+}
+
+#[test]
 fn test_monty_evaluate_compile_error_contains_macro_name() {
     let eval = MontyEvaluator::new();
     let err = eval
