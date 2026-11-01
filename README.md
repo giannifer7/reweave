@@ -214,6 +214,10 @@ ninja -C build
 - Every chunk reference must be defined; reweave does not silently expand
   missing chunks to nothing. Define an empty chunk (`# <[name]>=\n# @`) for
   intentional extension points.
+- The reverse also holds: every defined chunk must be reachable from an
+  `@file` chunk, or tangling fails (see [Strictness](#strictness)). Forgetting
+  to add `<[name]>` to its owner is exactly as much a mistake as forgetting
+  to define it in the first place.
 - Macro variables are lexically scoped: a nested `%def` does **not** capture
   the outer macro's parameters. Declare them explicitly and pass them at the
   call site: `%def(inner, name, ...)` then `%inner(%(name))`.
@@ -580,6 +584,15 @@ Reweave deliberately fails on ambiguous or unsafe input:
 
 - Undefined macros and variables are errors.
 - Undefined chunks are errors by default.
+- A defined chunk that is never referenced — directly or transitively —
+  from any `@file` chunk is also an error: it would otherwise silently drop
+  out of the tangled output with nothing in the run's own output to say
+  why. There is no opt-out and no "documentation-only chunk" marker; a
+  snippet that isn't meant to be tangled or reused simply doesn't need
+  `<[name]>=`/`@` chunk syntax at all — write it as plain text or a fenced
+  code block without the noweb markers. A chunk referenced only by another
+  dead chunk is folded into that chunk's error rather than reported again
+  on its own.
 - Recursive chunk references are detected.
 - Macro recursion is bounded by `--recursion-limit`.
 - Output paths must be relative and safe.

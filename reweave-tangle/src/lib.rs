@@ -33,6 +33,25 @@ pub enum TangleError {
         file_name: String,
         line: usize,
     },
+    #[error(
+        "{file_name} line {}: chunk '{chunk}' is defined but never referenced from any @file chunk{}",
+        line + 1,
+        if group.is_empty() {
+            String::new()
+        } else {
+            format!(" (dead together with: {})", group.join(", "))
+        }
+    )]
+    UnreferencedChunk {
+        chunk: String,
+        file_name: String,
+        line: usize,
+        /// The rest of this chunk's dead cluster (chunks reachable only
+        /// through `chunk`, or through which `chunk` is reachable): other
+        /// chunks that silently disappear for the same underlying reason,
+        /// reported together rather than as separate errors.
+        group: Vec<String>,
+    },
     #[error("{file_name} line {}: file chunk '{file_chunk}' is already defined (use @replace to redefine)", line + 1)]
     FileChunkRedefinition {
         file_chunk: String,
@@ -279,6 +298,16 @@ impl Tangle {
     /// handed one path or a hundred, and a hundred separate process spawns for
     /// a hundred tangled files would not scale.
     pub fn write_files(&self, out_dir: &Path) -> Result<Vec<PathBuf>, TangleError> {
+        // A named chunk nobody ever references is as much a structural
+        // mistake as a reference to a chunk nobody ever defines (the
+        // existing `UndefinedChunk` check, the other direction): it drops
+        // out of the generated output with nothing in the run's own output
+        // to say why. Checked once here, across every chunk this run
+        // parsed, rather than per `@file` chunk below.
+        if let Some(err) = self.unreferenced_chunk_errors().into_iter().next() {
+            return Err(err);
+        }
+
         let mut written = Vec::new();
         let mut to_format: Vec<(PathBuf, String, Vec<u8>)> = Vec::new();
 
@@ -598,6 +627,176 @@ impl Tangle {
     fn file_name(&self, idx: usize) -> String {
         self.file_names.get(idx).cloned().unwrap_or_default()
     }
+
+    /// Named chunks reachable from any `@file` chunk, by following chunk
+    /// references transitively. `@file` chunk names are included as the
+    /// traversal's roots (they are definitionally "reachable").
+    ///
+    /// This is the same traversal `expand_inner` performs, minus the actual
+    /// expansion: only which chunks are reached, not their rendered content.
+    /// It covers every document this run read into `self` with one pass,
+    /// which is exactly what makes it correct across `%include`-spliced
+    /// fragments too — a fragment's chunk definitions, once spliced into a
+    /// main document's expanded text, are read here exactly like any other
+    /// part of that document, with no separate per-document pass to miss
+    /// cross-document references.
+    fn reachable_chunks(&self) -> HashSet<String> {
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut queue: Vec<String> = self.file_chunks.clone();
+        while let Some(name) = queue.pop() {
+            if !visited.insert(name.clone()) {
+                continue;
+            }
+            if let Some(chunk) = self.chunks.get(&name) {
+                for referenced in self.chunk_references(chunk) {
+                    if !visited.contains(&referenced) {
+                        queue.push(referenced);
+                    }
+                }
+            }
+        }
+        visited
+    }
+
+    /// Every chunk name referenced anywhere across a named chunk's
+    /// (possibly accumulated) definitions, in no particular order and
+    /// without checking whether the name is itself defined.
+    fn chunk_references(&self, chunk: &NamedChunk) -> Vec<String> {
+        chunk
+            .definitions
+            .iter()
+            .flat_map(|def| &def.content)
+            .filter_map(|line| self.syntax.parse_reference_line(line))
+            .map(|slot| slot.referenced_chunk.trim().to_string())
+            .collect()
+    }
+
+    /// One [`TangleError::UnreferencedChunk`] per connected cluster of dead
+    /// chunks — named chunks defined in this run but outside the
+    /// reachability closure of every `@file` chunk — ordered by each
+    /// cluster's representative's own definition site (earliest first).
+    ///
+    /// A dead chunk can only ever be referenced by another dead chunk: a
+    /// live referrer would make it live too by definition of
+    /// [`reachable_chunks`](Self::reachable_chunks). So the dead chunks
+    /// form their own closed subgraph, and one forgotten reference
+    /// typically kills one connected cluster of them — reported as a
+    /// single error (naming the rest of the cluster for context) rather
+    /// than one error per member, which would read as a wall of duplicates
+    /// for the same underlying mistake.
+    fn unreferenced_chunk_errors(&self) -> Vec<TangleError> {
+        let live = self.reachable_chunks();
+        let dead_names: HashSet<String> = self
+            .chunks
+            .keys()
+            .filter(|name| !name.starts_with("@file ") && !live.contains(*name))
+            .cloned()
+            .collect();
+        if dead_names.is_empty() {
+            return Vec::new();
+        }
+
+        let mut out_edges: HashMap<String, Vec<String>> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> =
+            dead_names.iter().map(|n| (n.clone(), 0)).collect();
+        for name in &dead_names {
+            let chunk = self
+                .chunks
+                .get(name)
+                .expect("every dead name came from self.chunks's own keys");
+            let targets: Vec<String> = self
+                .chunk_references(chunk)
+                .into_iter()
+                .filter(|referenced| dead_names.contains(referenced))
+                .collect();
+            for target in &targets {
+                *in_degree
+                    .get_mut(target)
+                    .expect("target was filtered to dead_names above") += 1;
+            }
+            out_edges.insert(name.clone(), targets);
+        }
+
+        let mut errors: Vec<((usize, usize), TangleError)> = group_dead_chunks(&dead_names, &out_edges)
+            .into_iter()
+            .map(|group| self.dead_group_error(group, &in_degree))
+            .collect();
+        errors.sort_by_key(|(key, _)| *key);
+        errors.into_iter().map(|(_, err)| err).collect()
+    }
+
+    /// Builds one cluster's error: the representative is the member with no
+    /// incoming reference from elsewhere in the cluster (the one nothing
+    /// else there points at, so it is the cluster's own root cause), tying
+    /// on the earliest definition site; a pure cycle with no such member
+    /// (every member referenced by another member in it) falls back to the
+    /// earliest-defined member outright. Returns the representative's own
+    /// `(file_idx, line)` alongside the error, to order clusters by.
+    fn dead_group_error(
+        &self,
+        mut group: Vec<String>,
+        in_degree: &HashMap<String, usize>,
+    ) -> ((usize, usize), TangleError) {
+        group.sort();
+        let representative = group
+            .iter()
+            .min_by_key(|name| {
+                let def = &self.chunks[*name].definitions[0];
+                (in_degree[*name], def.file_idx, def.line)
+            })
+            .expect("group_dead_chunks never returns an empty group")
+            .clone();
+        let def = &self.chunks[&representative].definitions[0];
+        let key = (def.file_idx, def.line);
+        let rest: Vec<String> = group.into_iter().filter(|n| *n != representative).collect();
+        (
+            key,
+            TangleError::UnreferencedChunk {
+                chunk: representative,
+                file_name: self.file_name(def.file_idx),
+                line: def.line,
+                group: rest,
+            },
+        )
+    }
+}
+
+/// Weakly-connected components of the dead-chunk subgraph: two dead chunks
+/// land in the same component when either references the other, directly
+/// or transitively, regardless of direction — direction only matters for
+/// picking a cluster's representative afterwards, not for clustering.
+fn group_dead_chunks(
+    dead_names: &HashSet<String>,
+    out_edges: &HashMap<String, Vec<String>>,
+) -> Vec<Vec<String>> {
+    let mut undirected: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (from, targets) in out_edges {
+        for to in targets {
+            undirected.entry(from.as_str()).or_default().push(to.as_str());
+            undirected.entry(to.as_str()).or_default().push(from.as_str());
+        }
+    }
+
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut groups = Vec::new();
+    for name in dead_names {
+        if seen.contains(name.as_str()) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![name.as_str()];
+        while let Some(n) = stack.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            component.push(n.to_string());
+            if let Some(neighbors) = undirected.get(n) {
+                stack.extend(neighbors.iter().copied());
+            }
+        }
+        groups.push(component);
+    }
+    groups
 }
 
 #[derive(Debug)]
@@ -1010,6 +1209,148 @@ println!("hi");
         let t = read("```text\n    # <[@file out.txt]>=\nx\n# @\n```");
         assert_eq!(t.expand("@file out.txt").unwrap().join(""), "x\n");
     }
+
+    #[test]
+    fn write_files_rejects_a_chunk_defined_but_never_referenced() {
+        // The real claycloj incident this check exists for: a chunk body
+        // was written but the reference pulling it into its file chunk was
+        // forgotten, and it silently never made it into the output.
+        let temp = tempfile::tempdir().unwrap();
+        let t = read(
+            "```text\n# <[@file out.txt]>=\nkept\n# @\n# <[forgotten]>=\nvalue\n# @\n```",
+        );
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::UnreferencedChunk { .. }));
+        let message = err.to_string();
+        assert!(message.contains("test.md line 5:"), "wrong location in: {message}");
+        assert!(message.contains("chunk 'forgotten'"), "wrong chunk in: {message}");
+        assert!(
+            !message.contains("dead together with"),
+            "a lone dead chunk should not list a group: {message}"
+        );
+        assert!(!temp.path().join("out.txt").exists());
+    }
+
+    #[test]
+    fn write_files_succeeds_when_every_named_chunk_is_referenced() {
+        let temp = tempfile::tempdir().unwrap();
+        let t = read("```text\n# <[@file out.txt]>=\n# <[body]>\n# @\n# <[body]>=\nkept\n# @\n```");
+
+        let written = t.write_files(temp.path()).unwrap();
+
+        assert_eq!(written.len(), 1);
+    }
+
+    #[test]
+    fn reachable_chunks_handles_a_chunk_referenced_twice_from_the_same_definition() {
+        // `shared` is referenced twice in a row from the same `@file`
+        // definition: both references get queued before either is popped,
+        // so the second pop finds `shared` already visited — the
+        // reachability scan's dedup path, not just its first-visit path.
+        // `shared` must still come out live, not dead.
+        let temp = tempfile::tempdir().unwrap();
+        let t = read(
+            "```text\n# <[@file out.txt]>=\n# <[shared]>\n# <[shared]>\n# @\n# <[shared]>=\nx\n# @\n```",
+        );
+
+        let written = t.write_files(temp.path()).unwrap();
+
+        assert_eq!(written.len(), 1);
+        assert_eq!(
+            fs::read_to_string(temp.path().join("out.txt")).unwrap(),
+            "x\nx\n"
+        );
+    }
+
+    #[test]
+    fn unreferenced_chunk_that_only_references_another_dead_chunk_reports_one_error() {
+        // `wrapper` references `helper`, but neither is reachable from any
+        // `@file` chunk: the whole two-chunk cluster is dead because of one
+        // missing reference, and should surface as one error, not two.
+        let temp = tempfile::tempdir().unwrap();
+        let t = read(
+            "```text\n# <[@file out.txt]>=\nkept\n# @\n# <[wrapper]>=\n# <[helper]>\n# @\n# <[helper]>=\nvalue\n# @\n```",
+        );
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::UnreferencedChunk { .. }));
+        let message = err.to_string();
+        // `wrapper` is the cluster's own root cause (nothing references
+        // it); `helper` is only dead as a consequence and is folded into
+        // the same error instead of being reported again.
+        assert!(message.contains("chunk 'wrapper'"), "wrong representative in: {message}");
+        assert!(message.contains("dead together with: helper"), "helper not folded in: {message}");
+    }
+
+    #[test]
+    fn unreferenced_chunk_pure_cycle_with_no_external_referrer_reports_one_error() {
+        // `a` and `b` reference each other and nothing else references
+        // either: every member of the cluster has an in-cluster referrer,
+        // so the usual "nothing points at it" rule can't pick a
+        // representative — the earliest-defined member breaks the tie.
+        let temp = tempfile::tempdir().unwrap();
+        let t = read(
+            "```text\n# <[@file out.txt]>=\nkept\n# @\n# <[a]>=\n# <[b]>\n# @\n# <[b]>=\n# <[a]>\n# @\n```",
+        );
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::UnreferencedChunk { .. }));
+        let message = err.to_string();
+        assert!(message.contains("chunk 'a'"), "wrong representative in: {message}");
+        assert!(message.contains("dead together with: b"), "b not folded in: {message}");
+    }
+
+    #[test]
+    fn unreferenced_chunk_groups_are_reported_earliest_first() {
+        // Two independent dead chunks: the one defined first is the one
+        // `write_files` reports (deterministic, matching how every other
+        // structural error here surfaces the earliest problem first), and
+        // the unrelated second one is not folded into its message.
+        let temp = tempfile::tempdir().unwrap();
+        let t = read(
+            "```text\n# <[@file out.txt]>=\nkept\n# @\n# <[first_forgotten]>=\nx\n# @\n# <[second_forgotten]>=\ny\n# @\n```",
+        );
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::UnreferencedChunk { .. }));
+        let message = err.to_string();
+        assert!(message.contains("chunk 'first_forgotten'"), "wrong chunk in: {message}");
+        assert!(
+            !message.contains("second_forgotten"),
+            "unrelated dead chunk should not appear in: {message}"
+        );
+    }
+
+    #[test]
+    fn unreferenced_chunk_check_spans_multiple_documents_read_into_one_tangle() {
+        // Mirrors reweave-cli's own architecture: every main document's
+        // already macro-expanded (and %include-spliced) text is read into
+        // one shared `Tangle` before `write_files` runs, so a chunk defined
+        // in one document and referenced only by a dead chunk in another
+        // is still correctly recognized as part of the same dead cluster,
+        // with no separate per-document pass to miss the cross-document
+        // reference.
+        let temp = tempfile::tempdir().unwrap();
+        let mut t = Tangle::new(TangleConfig::default());
+        t.read(
+            "```text\n# <[@file out.txt]>=\nkept\n# @\n# <[helper]>=\nvalue\n# @\n```",
+            "a.md",
+        );
+        t.read("```text\n# <[wrapper]>=\n# <[helper]>\n# @\n```", "b.md");
+
+        let err = t.write_files(temp.path()).unwrap_err();
+
+        assert!(matches!(err, TangleError::UnreferencedChunk { .. }));
+        let message = err.to_string();
+        assert!(message.contains("b.md line 2:"), "wrong location in: {message}");
+        assert!(message.contains("chunk 'wrapper'"), "wrong representative in: {message}");
+        assert!(message.contains("dead together with: helper"), "helper not folded in: {message}");
+    }
 }
 
 #[cfg(test)]
@@ -1281,5 +1622,96 @@ mod formatter_cache_tests {
         // Failed batches leave no stray .reweave-fmt temp files behind.
         assert!(!temp.path().join("a.reweave-fmt").exists());
         assert!(!temp.path().join("b.reweave-fmt").exists());
+    }
+
+    #[test]
+    fn reformatting_to_the_same_bytes_as_the_existing_output_only_updates_the_cache() {
+        // The formatter normalizes every input to the same fixed output. A
+        // changed raw expansion still forces a reformat (the raw cache
+        // alone can't skip it), but the *formatted* result turns out
+        // byte-identical to what is already on disk — the "already
+        // correct" path that only needs to refresh the cache, not rewrite
+        // the file or report it as written.
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("normalize.sh");
+        fs::write(&script, "#!/bin/sh\nprintf 'const\\n' > \"$1\"\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let fmt = script.to_string_lossy().into_owned();
+
+        let mut first_tangle = Tangle::new(TangleConfig {
+            formatters: vec![fmt.clone()],
+            ..TangleConfig::default()
+        });
+        first_tangle.read("```text\n# <[@file out.txt]>=\none\n# @\n```", "test.md");
+        let first = first_tangle.write_files(temp.path()).unwrap();
+        assert_eq!(first, vec![temp.path().join("out.txt")]);
+        assert_eq!(
+            fs::read_to_string(temp.path().join("out.txt")).unwrap(),
+            "const\n"
+        );
+
+        let mut second_tangle = Tangle::new(TangleConfig {
+            formatters: vec![fmt],
+            ..TangleConfig::default()
+        });
+        second_tangle.read("```text\n# <[@file out.txt]>=\ntwo\n# @\n```", "test.md");
+        let second = second_tangle.write_files(temp.path()).unwrap();
+
+        assert!(second.is_empty(), "no file write was needed, only the cache");
+        assert_eq!(
+            fs::read_to_string(temp.path().join("out.txt")).unwrap(),
+            "const\n"
+        );
+    }
+
+    #[test]
+    fn cache_hit_reformats_when_hash_cache_file_is_missing() {
+        // The raw expansion is unchanged (the raw-cache half of the check
+        // would pass on its own), but the hash-cache file is gone —
+        // `cache_hit` must treat that as a miss rather than assume a match.
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = counting_formatter(temp.path(), "fmt.sh", &counter);
+        let t = tangle_with_formatter(&fmt);
+
+        t.write_files(temp.path()).unwrap();
+        assert_eq!(count(&counter), 1);
+        fs::remove_file(temp.path().join(".reweave/out.txt.hash")).unwrap();
+
+        let second = t.write_files(temp.path()).unwrap();
+
+        // The reformat reproduces the same bytes already on disk, so
+        // nothing is (re)written — but the formatter did have to run.
+        assert!(second.is_empty());
+        assert_eq!(count(&counter), 2, "missing hash cache should force a reformat");
+    }
+
+    #[test]
+    fn cache_hit_reformats_when_output_file_is_missing() {
+        // The raw and hash caches both still match, but the generated file
+        // itself was deleted (e.g. by hand, or by a cleaned output tree) —
+        // `cache_hit` must notice the file is gone rather than treat a
+        // matching cache as proof the output still exists.
+        let temp = tempfile::tempdir().unwrap();
+        let counter = temp.path().join("count");
+        let fmt = counting_formatter(temp.path(), "fmt.sh", &counter);
+        let t = tangle_with_formatter(&fmt);
+
+        t.write_files(temp.path()).unwrap();
+        assert_eq!(count(&counter), 1);
+        fs::remove_file(temp.path().join("out.txt")).unwrap();
+
+        let second = t.write_files(temp.path()).unwrap();
+
+        assert_eq!(second, vec![temp.path().join("out.txt")]);
+        assert_eq!(count(&counter), 2, "missing output file should force a reformat");
+        assert_eq!(
+            fs::read_to_string(temp.path().join("out.txt")).unwrap(),
+            "hello\nformatted\n"
+        );
     }
 }
